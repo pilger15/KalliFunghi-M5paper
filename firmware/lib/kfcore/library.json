@@ -1,0 +1,7 @@
+{
+  "name": "kfcore",
+  "version": "0.1.0",
+  "description": "KalliFunghi pure logic (no Arduino headers), shared by the firmware and the native tests. Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Low | Reviewed by: None",
+  "frameworks": "*",
+  "platforms": "*"
+}

@@ -1,0 +1,9 @@
+# PlatformIO build output and editor state
+firmware/.pio/
+.vscode/
+
+# Hotspot name and password (template: secrets.example.h)
+firmware/lib/kfcore/src/secrets.h
+
+# Contains the hotspot password and is out of date with the firmware
+docs/KalliFunghi User Guide.pdf
