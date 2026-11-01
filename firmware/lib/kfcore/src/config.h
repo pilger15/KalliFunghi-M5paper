@@ -88,7 +88,8 @@ constexpr int kSidebarW = 130;
 
 // ---- Logging and plots ----
 constexpr uint32_t kSdFlushMs = 5UL * 60 * 1000;
-constexpr int kLogBufferRows = 256;            // rows held in RAM between flushes
+constexpr uint32_t kSdRetryMs = 30UL * 1000;   // flush retry while the card has a problem
+constexpr int kLogBufferRows = 256;           // rows held in RAM between flushes
 constexpr uint32_t kRingSeconds = 6UL * 3600;
 constexpr int kRingCapacity = kRingSeconds / (kSampleFastMs / 1000) + 64;
 constexpr uint64_t kSdMinFreeBytes = 1024ULL * 1024;

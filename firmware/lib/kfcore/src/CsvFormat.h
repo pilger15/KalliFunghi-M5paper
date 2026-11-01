@@ -13,6 +13,7 @@ namespace kf {
 constexpr const char* kCsvHeader = "utc_iso,co2_ppm,temp_c,rh_pct,lux,mode,clock";
 constexpr const char* kUnsyncedLogPath = "/log/unsynced.csv";
 constexpr const char* kSyncLogPath = "/log/sync.csv";      // utc_iso,correction_s
+constexpr const char* kErrorLogPath = "/log/error.log";    // utc_iso,clock,event text
 constexpr size_t kCsvRowMax = 96;
 
 // "2026-10-24T10:00:00Z"; buf needs 21 bytes.

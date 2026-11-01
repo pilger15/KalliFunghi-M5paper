@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Sonnet 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 // SD card: mount, batched CSV logging, config.json, history for long plot ranges.
 //
 // SPI sharing: SD and IT8951 share SPI3 (SCK14 MOSI12 MISO13). Every method here
@@ -38,6 +38,16 @@ public:
     // Appends a line to /log/sync.csv: utc_iso,correction_s.
     void logSync(int64_t utc, int64_t correction_s);
 
+    // Error log /log/error.log (utc_iso,clock,text). event() only queues in RAM, so it is
+    // safe at any time (also with no card); the lines are written by the next flush()
+    // or flushEvents(), i.e. as soon as a working card is present. Keeps the newest 16.
+    // The caller refreshes the timestamp source once per tick.
+    /* Created by Claude Sonnet 5.5 | Review priority: Medium | Reviewed by: None */
+    void setTime(int64_t utc, bool clock_valid) { now_utc_ = utc; now_valid_ = clock_valid; }
+    void event(const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+    size_t pendingEvents() const { return ev_count_; }
+    bool flushEvents();
+
     // Fills wifi from /config.json if present ({"wifi":{"ssid":..,"password":..}}).
     // Leaves it unchanged otherwise.
     void loadConfig(WifiConfig& wifi);
@@ -54,6 +64,9 @@ private:
     bool remountIfNeeded();
     void checkFree();
 
+    static constexpr size_t kEventSlots = 16;
+    static constexpr size_t kEventLen = 112;
+
     Sample buf_[kCapacity];
     size_t head_ = 0;    // oldest
     size_t count_ = 0;
@@ -61,6 +74,15 @@ private:
     bool full_ = false;
     bool write_failed_ = false;
     uint32_t dropped_ = 0;
+    uint32_t dropped_reported_ = 0;
+    bool fail_reported_ = false;   // a write failure is in the log already
+    bool full_reported_ = false;
+
+    int64_t now_utc_ = 0;
+    bool now_valid_ = false;
+    char ev_[kEventSlots][kEventLen];
+    size_t ev_head_ = 0;
+    size_t ev_count_ = 0;
 };
 
 } // namespace kf

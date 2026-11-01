@@ -1,10 +1,11 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Sonnet 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 #include "App.h"
 
 #include <M5Unified.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <new>
 #include <stdio.h>
 #include <string.h>
@@ -30,6 +31,23 @@ constexpr uint32_t kMaxSleepMs = 60UL * 60 * 1000;
 // Signed difference a - b for wrapping millis() values.
 inline int32_t diff(uint32_t a, uint32_t b) { return (int32_t)(a - b); }
 
+/* Created by Claude Sonnet 5.5 | Review priority: Low | Reviewed by: None */
+const char* resetReasonText(esp_reset_reason_t r)
+{
+    switch (r) {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "PANIC (crash)";
+    case ESP_RST_INT_WDT: return "interrupt watchdog";
+    case ESP_RST_TASK_WDT: return "task watchdog";
+    case ESP_RST_WDT: return "other watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep sleep wake";
+    case ESP_RST_BROWNOUT: return "BROWN-OUT (supply dip)";
+    case ESP_RST_EXT: return "external pin";
+    default: return "unknown";
+    }
+}
+
 /* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
 template <typename T>
 T* allocPsram(size_t count)
@@ -50,7 +68,7 @@ App::App()
     snprintf(wifi_.password, sizeof(wifi_.password), "%s", kDefaultPassword);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
 void App::setup()
 {
     board::earlyInit();
@@ -88,8 +106,13 @@ void App::setup()
     // After the low-battery check, so a too-low restart keeps the "Battery low" screen.
     display_.clean(kBootCleanCycles);
     SPI.begin(kPinSpiSck, kPinSpiMiso, kPinSpiMosi, kPinSdCs);
+    sd_.setTime(rtc_utc_, clockValid());
     sd_.mount();
     sd_.loadConfig(wifi_);
+    // Why the previous run ended: a brown-out, panic or watchdog here explains a series
+    // that stops; a plain power-on does not.
+    sd_.event("boot, reset reason %s, battery %d mV, sd %d", resetReasonText(esp_reset_reason()), mv,
+              (int)sd_.mounted());
 
     ring_storage_ = allocPsram<Sample>(kRingCapacity);
     ring_ = new SampleRing(ring_storage_, ring_storage_ ? kRingCapacity : 0);
@@ -130,7 +153,7 @@ void App::setup()
              (int)clockValid(), (int)scd_.present(), (int)light_.present(), (int)sd_.mounted());
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
 void App::loop()
 {
     uint32_t now = millis();
@@ -143,6 +166,7 @@ void App::loop()
 
     rtc_utc_ = clock_.readRtc();
     rtc_ms_ = millis();
+    sd_.setTime(utcNow(), clockValid());
 
     psm_.onUsb(now, usb);
     psm_.update(now);
@@ -374,7 +398,7 @@ void App::sample(uint32_t now)
     recordSample(ok, r, lux_ok, lux);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
 void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, float lux)
 {
     uint32_t now = millis();
@@ -384,6 +408,8 @@ void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, 
         // No data for 3 intervals (unplugged, brown-out, I2C error): re-init, which also
         // re-applies ASC off and the offset a brown-out would have lost.
         scd_missed_ = 0;
+        sd_.event("scd41 gave no data for %d intervals, reinit (present %d)", kScdMissedIntervalsReinit,
+                  (int)scd_.present());
         if (!calibrating_) { scd_.reinit(now); }
         next_sample_ms_ = now + sampleIntervalMs();
     }
@@ -667,11 +693,13 @@ void App::refresh(uint32_t now)
     display_.rest(!interactive && !in_sync_);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
 void App::flush(uint32_t now, bool force)
 {
-    if (sd_.queued() == 0) { return; }
-    bool due = force || diff(now, last_flush_ms_) >= (int32_t)kSdFlushMs || sd_.bufferNearlyFull();
+    if (sd_.queued() == 0 && sd_.pendingEvents() == 0) { return; }
+    // After a failed write, retry sooner so a re-inserted card is picked up quickly.
+    uint32_t interval = sd_.problem() ? kSdRetryMs : kSdFlushMs;
+    bool due = force || diff(now, last_flush_ms_) >= (int32_t)interval || sd_.bufferNearlyFull();
     if (!due) { return; }
     if (!display_.busPowered()) {
         // Panel off (idle): wait for the next idle refresh unless the buffer is about
@@ -683,7 +711,7 @@ void App::flush(uint32_t now, bool force)
     last_flush_ms_ = now;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
 void App::lowBatteryShutdown()
 {
     KF_TRACE("low battery: %d mV, shutting down", battery_.mv());
@@ -697,6 +725,7 @@ void App::lowBatteryShutdown()
     display_.beginFrame(true);
     ui_.drawLowBattery(last);
     display_.endFrame();
+    sd_.event("low battery shutdown at %d mV, %u rows queued", battery_.mv(), (unsigned)sd_.queued());
     sd_.flush();
     settings_.low_batt_off = true;
     settings_.save();
