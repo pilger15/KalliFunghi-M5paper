@@ -1,4 +1,4 @@
-/* Edited by Claude Sonnet 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 // SD card: mount, batched CSV logging, config.json, history for long plot ranges.
 //
 // SPI sharing: SD and IT8951 share SPI3 (SCK14 MOSI12 MISO13). Every method here
@@ -12,6 +12,7 @@
 #include "SampleRing.h"
 #include "Types.h"
 #include "config.h"
+#include "hw/DebugTrace.h"
 
 namespace kf {
 
@@ -63,6 +64,9 @@ private:
     bool writeRows(const char* path, size_t first, size_t n);
     bool remountIfNeeded();
     void checkFree();
+#if KF_TRACE_ENABLED
+    void traceCard();
+#endif
 
     static constexpr size_t kEventSlots = 16;
     static constexpr size_t kEventLen = 112;

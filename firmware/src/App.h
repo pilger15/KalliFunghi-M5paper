@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 // Wires the modules together and owns the tick loop.
 //
 // One tick per wake:
@@ -107,6 +107,7 @@ private:
     bool shot_pending_ = false;
     uint32_t shot_ready_ms_ = 0;
     int scd_missed_ = 0;
+    bool no_data_reported_ = false;   // "no sensor data" is in the error log already
     bool have_latest_ = false;
     Sample latest_;
 

@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 #include "UsbDetect.h"
 
 #include <Arduino.h>
@@ -15,10 +15,12 @@ const UsbHeuristic::Params kParams{
 
 UsbDetect::UsbDetect() : heuristic_(kParams) {}
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void UsbDetect::begin()
 {
+#ifndef KF_TRACE_USB
     pinMode(kPinUart0Tx, INPUT);
+#endif
     pinMode(kPinUart0Rx, INPUT_PULLDOWN);
 }
 

@@ -1,4 +1,4 @@
-/* Edited by Claude Sonnet 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 #include "App.h"
 
 #include <M5Unified.h>
@@ -127,6 +127,14 @@ void App::setup()
 
     Wire.begin(kPinPortASda, kPinPortAScl, kPortAI2cHz);
     delay(50);   // SCD41 power-up time after EXT5V
+#if KF_TRACE_ENABLED
+    KF_TRACE("ext5v %d, port A SDA %d SCL %d", (int)M5.Power.getExtOutput(), digitalRead(kPinPortASda),
+             digitalRead(kPinPortAScl));
+    for (uint8_t a = 1; a < 127; ++a) {
+        Wire.beginTransmission(a);
+        if (Wire.endTransmission() == 0) { KF_TRACE("i2c port A: 0x%02x", a); }
+    }
+#endif
     scd_.begin(Wire, settings_.temp_offset, !settings_.asc_off_persisted);
     if (scd_.ascPersistedNow() && !settings_.asc_off_persisted) {
         settings_.asc_off_persisted = true;
@@ -162,6 +170,9 @@ void App::loop()
     // Fixed load point: radio off, EPD in standby or off, before any work.
     int mv = M5.Power.getBatteryVoltage();
     bool usb = usb_.update(now, mv);
+#ifdef KF_FORCE_BATTERY
+    usb = false;   // bench: battery behaviour (idle, panel off) while powered over USB
+#endif
     if (battery_.feed(mv, usb)) { lowBatteryShutdown(); }
 
     rtc_utc_ = clock_.readRtc();
@@ -398,7 +409,7 @@ void App::sample(uint32_t now)
     recordSample(ok, r, lux_ok, lux);
 }
 
-/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, float lux)
 {
     uint32_t now = millis();
@@ -413,7 +424,20 @@ void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, 
         if (!calibrating_) { scd_.reinit(now); }
         next_sample_ms_ = now + sampleIntervalMs();
     }
-    if (!scd_ok && !lux_ok) { return; }
+    // A sample with no sensor value is not logged to the CSV; the error log notes when
+    // that starts and stops (once each, not every interval).
+    if (!scd_ok && !lux_ok) {
+        if (!no_data_reported_) {
+            sd_.event("no sensor data (scd41 %d, veml7700 %d), samples not logged", (int)scd_.present(),
+                      (int)light_.present());
+            no_data_reported_ = true;
+        }
+        return;
+    }
+    if (no_data_reported_) {
+        sd_.event("sensor data back (scd41 %d, veml7700 %d), logging resumed", (int)scd_ok, (int)lux_ok);
+        no_data_reported_ = false;
+    }
 
     Sample s;
     s.utc = (uint32_t)utcNow();
@@ -693,7 +717,7 @@ void App::refresh(uint32_t now)
     display_.rest(!interactive && !in_sync_);
 }
 
-/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::flush(uint32_t now, bool force)
 {
     if (sd_.queued() == 0 && sd_.pendingEvents() == 0) { return; }
@@ -704,10 +728,14 @@ void App::flush(uint32_t now, bool force)
     if (!display_.busPowered()) {
         // Panel off (idle): wait for the next idle refresh unless the buffer is about
         // to overflow on a working card.
-        if (!(sd_.bufferNearlyFull() && !sd_.problem())) { return; }
+        if (!(sd_.bufferNearlyFull() && !sd_.problem())) {
+            KF_TRACE("flush due, panel off, %u rows wait", (unsigned)sd_.queued());
+            return;
+        }
         display_.powerForSd();
     }
-    sd_.flush();
+    bool ok = sd_.flush();
+    KF_TRACE("flush %d, %u rows left, problem %d", (int)ok, (unsigned)sd_.queued(), (int)sd_.problem());
     last_flush_ms_ = now;
 }
 

@@ -1,4 +1,4 @@
-/* Edited by Claude Sonnet 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 #include "SdStore.h"
 
 #include <ArduinoJson.h>
@@ -12,7 +12,7 @@
 
 namespace kf {
 
-/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 bool SdStore::mount()
 {
     bool was_mounted = mounted_;
@@ -27,8 +27,46 @@ bool SdStore::mount()
         event("sd mount failed (card removed or unreadable)");
     }
     KF_TRACE("sd mount %d", (int)mounted_);
+#if KF_TRACE_ENABLED
+    if (mounted_) { traceCard(); }
+#endif
     return mounted_;
 }
+
+#if KF_TRACE_ENABLED
+/* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
+// Debug builds only: card type, size and the /log listing, to see the card state without
+// pulling it.
+void SdStore::traceCard()
+{
+    KF_TRACE("sd type %d, total %llu, used %llu", (int)SD.cardType(), (unsigned long long)SD.totalBytes(),
+             (unsigned long long)SD.usedBytes());
+    File dir = SD.open("/log");
+    if (!dir || !dir.isDirectory()) {
+        KF_TRACE("sd /log missing");
+        return;
+    }
+    int n = 0;
+    for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+        KF_TRACE("sd   %s %u", f.name(), (unsigned)f.size());
+        f.close();
+        ++n;
+    }
+    dir.close();
+    KF_TRACE("sd /log has %d entries", n);
+    // Tail of the error log: what happened in earlier runs.
+    File e = SD.open(kErrorLogPath, FILE_READ);
+    if (!e) { return; }
+    if (e.size() > 3000) { e.seek(e.size() - 3000); }
+    char line[kEventLen + 16];
+    while (e.available()) {
+        size_t len = e.readBytesUntil('\n', line, sizeof(line) - 1);
+        line[len] = '\0';
+        KF_TRACE("errlog %s", line);
+    }
+    e.close();
+}
+#endif
 
 /* Edited by Claude Sonnet 5.5 | Review priority: Medium | Reviewed by: None */
 // A total of 0 means the FAT query failed, not that the card is full: keep logging.
@@ -108,10 +146,11 @@ void SdStore::queue(const Sample& s)
     ++count_;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 bool SdStore::writeRows(const char* path, size_t first, size_t n)
 {
     File f = SD.open(path, FILE_APPEND);
+    KF_TRACE("sd open %s %d, %u rows", path, (int)(bool)f, (unsigned)n);
     if (!f) { return false; }
     bool ok = true;
     if (f.size() == 0) { ok = f.println(kCsvHeader) > 0; }

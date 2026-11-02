@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 #include "Board.h"
 
 #include <Arduino.h>
@@ -10,7 +10,7 @@
 namespace kf {
 namespace board {
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void earlyInit()
 {
     // Main power hold. The hold keeps the level through a panic, watchdog or
@@ -20,7 +20,9 @@ void earlyInit()
     digitalWrite(kPinMainPowerHold, HIGH);
     gpio_hold_en((gpio_num_t)kPinMainPowerHold);
 
+#ifndef KF_TRACE_USB
     pinMode(kPinUart0Tx, INPUT);
+#endif
 }
 
 /* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
