@@ -118,6 +118,7 @@ private:
     uint32_t last_flush_ms_ = 0;
     uint32_t next_autosync_ms_ = 0;
     bool in_sync_ = false;
+    bool sync_reset_ = false;   // last run was reset during Wi-Fi: no auto-sync on battery this run
 
     // Debug counters
     uint32_t wakes_ = 0;

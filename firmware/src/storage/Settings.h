@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 // User settings and persistent state in NVS (namespace "kf").
 #pragma once
 
@@ -17,6 +17,7 @@ struct Settings {
     CalReminder cal;                // last_cal_utc 0 = not initialized yet
     bool asc_off_persisted = false; // SCD41 ASC=0 written to its EEPROM once
     bool low_batt_off = false;      // last power-off was for low battery
+    bool sync_running = false;      // set while Wi-Fi is up; still set at boot = reset during sync
 
     void load();
     void save() const;

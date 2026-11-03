@@ -2,8 +2,8 @@
 // SD card: mount, batched CSV logging, config.json, history for long plot ranges.
 //
 // SPI sharing: SD and IT8951 share SPI3 (SCK14 MOSI12 MISO13). Every method here
-// must only be called while the EPD is powered and no refresh is being pushed
-// (Display::busPowered()). With GPIO23 low the unpowered IT8951 loads MISO.
+// must only be called while no refresh is being pushed. The EPD stays powered
+// (Display keeps GPIO23 high), so its MISO load is not an issue.
 #pragma once
 
 #include <stddef.h>

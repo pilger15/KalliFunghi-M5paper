@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
 #include "Display.h"
 
 #include <M5Unified.h>
@@ -26,28 +26,19 @@ void Display::begin()
     force_full_ = true;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void Display::wake()
 {
-    if (state_ == State::Off) {
-        // setSleep(false) re-runs Panel_IT8951::init(true): toggles GPIO23 (power),
-        // re-inits the SPI bus and the controller.
-        M5.Display.wakeup();
+    if (state_ == State::Sleep) {
+        // SYS_RUN only. Never M5.Display.wakeup(): it re-runs init(true), which cycles
+        // GPIO23 and browns out the board.
+        M5.Display.powerSaveOff();
         force_full_ = true;
-        KF_TRACE("epd power on");
+        KF_TRACE("epd sleep -> run");
     } else if (state_ == State::Standby) {
         M5.Display.powerSaveOff();
     }
     state_ = State::Awake;
-}
-
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
-void Display::powerForSd()
-{
-    if (state_ != State::Off) { return; }
-    wake();
-    M5.Display.powerSaveOn();
-    state_ = State::Standby;
 }
 
 /* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
@@ -91,18 +82,16 @@ void Display::endFrame()
     }
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// GPIO23 (EPD power) stays high: switching it back on browns out the ESP32 (bench:
+// 9 of 10 power-ons, logged as interrupt watchdog). Sleep is TCON_SLEEP only.
 void Display::rest(bool deep)
 {
     if (deep) {
-        if (state_ == State::Off) { return; }
+        if (state_ == State::Sleep) { return; }
         if (state_ == State::Standby) { M5.Display.powerSaveOff(); }
-        M5.Display.sleep();   // TCON_SLEEP
-        pinMode(kPinEpdPower, OUTPUT);
-        digitalWrite(kPinEpdPower, LOW);
-        pinMode(kPinEpdCs, INPUT_PULLDOWN);
-        pinMode(kPinEpdBusy, INPUT_PULLDOWN);
-        state_ = State::Off;
+        M5.Display.sleep();   // TCON_SLEEP; no setSleep(false) later (see wake)
+        state_ = State::Sleep;
         force_full_ = true;
     } else {
         if (state_ != State::Awake) { return; }

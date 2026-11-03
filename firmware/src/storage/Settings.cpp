@@ -1,11 +1,11 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 #include "Settings.h"
 
 #include <Preferences.h>
 
 namespace kf {
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 void Settings::load()
 {
     Preferences p;
@@ -21,10 +21,11 @@ void Settings::load()
     cal.snooze_until_utc = p.getLong64("calSnooze", 0);
     asc_off_persisted = p.getBool("ascOff", false);
     low_batt_off = p.getBool("lowBatt", false);
+    sync_running = p.getBool("syncRun", false);
     p.end();
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 // Preferences only writes keys whose value changed, so a full save is cheap on flash.
 void Settings::save() const
 {
@@ -39,6 +40,7 @@ void Settings::save() const
     p.putLong64("calSnooze", cal.snooze_until_utc);
     p.putBool("ascOff", asc_off_persisted);
     p.putBool("lowBatt", low_batt_off);
+    p.putBool("syncRun", sync_running);
     p.end();
 }
 

@@ -68,7 +68,7 @@ App::App()
     snprintf(wifi_.password, sizeof(wifi_.password), "%s", kDefaultPassword);
 }
 
-/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::setup()
 {
     board::earlyInit();
@@ -113,6 +113,14 @@ void App::setup()
     // that stops; a plain power-on does not.
     sd_.event("boot, reset reason %s, battery %d mV, sd %d", resetReasonText(esp_reset_reason()), mv,
               (int)sd_.mounted());
+    if (settings_.sync_running) {
+        // Wi-Fi start draws current peaks that can brown out a part-charged cell. Without
+        // this, a never-synced clock retries 5 min after every boot: a reset loop.
+        sd_.event("previous run was reset during wifi sync, no auto-sync on battery until next boot");
+        sync_reset_ = true;
+        settings_.sync_running = false;
+        settings_.save();
+    }
 
     ring_storage_ = allocPsram<Sample>(kRingCapacity);
     ring_ = new SampleRing(ring_storage_, ring_storage_ ? kRingCapacity : 0);
@@ -161,7 +169,7 @@ void App::setup()
              (int)clockValid(), (int)scd_.present(), (int)light_.present(), (int)sd_.mounted());
 }
 
-/* Edited by Claude Sonnet 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::loop()
 {
     uint32_t now = millis();
@@ -491,18 +499,19 @@ void App::calibration(uint32_t now)
     setMessage(msg, now, kMessageMs);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::autoSync(uint32_t now)
 {
     if (diff(now, next_autosync_ms_) < 0) { return; }
     next_autosync_ms_ = now + kAutoSyncCheckMs;
     if (!settings_.auto_sync) { return; }
+    if (sync_reset_ && !psm_.usb()) { return; }
     int64_t age = settings_.last_sync_utc ? utcNow() - settings_.last_sync_utc : INT64_MAX;
     if (age < kAutoSyncAgeS) { return; }
     runSync(false, now);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::runSync(bool manual, uint32_t now)
 {
     if (!psm_.usb() && battery_.mv() < kBatterySyncMinMv) {
@@ -513,6 +522,11 @@ void App::runSync(bool manual, uint32_t now)
         if (manual) { setMessage("Busy calibrating, sync later", now, kMessageMs); }
         return;
     }
+    // Marker in NVS and a line on the card before the radio starts: if Wi-Fi resets the
+    // board, the next boot sees it (the queued RAM log would be lost).
+    settings_.sync_running = true;
+    settings_.save();
+    sd_.event("wifi sync start (%s), battery %d mV", manual ? "manual" : "auto", battery_.mv());
     flush(now, true);
     if (manual) {
         char msg[64];
@@ -527,6 +541,8 @@ void App::runSync(bool manual, uint32_t now)
                                  manual ? kSyncManualTimeoutMs : kSyncAutoTimeoutMs,
                                  [this]() { sample(millis()); });
     in_sync_ = false;
+    settings_.sync_running = false;
+    settings_.save();
     now = millis();
     psm_.onSyncEnd(now);
 
@@ -542,7 +558,7 @@ void App::runSync(bool manual, uint32_t now)
         }
         settings_.last_sync_utc = res.utc;
         settings_.save();
-        if (display_.busPowered()) { sd_.logSync(res.utc, res.correction_s); }
+        sd_.logSync(res.utc, res.correction_s);
         snprintf(msg, sizeof(msg), "Sync ok, clock corrected by %+lld s", (long long)res.correction_s);
     } else {
         snprintf(msg, sizeof(msg), "Sync failed: %s", syncResultText(res.code));
@@ -594,7 +610,7 @@ int App::graphCols() const
     return Ui::graphRect(tile).w;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 // Up to 6 h the bins are rebuilt from the RAM ring on every refresh (cheap). Longer
 // ranges stream the SD files once and then get new samples added as they come;
 // the window reaches 2 % into the future and is rebuilt when now passes it.
@@ -624,7 +640,6 @@ void App::prepareBins(uint32_t now)
     int64_t t0 = t1 - range;
     for (int f = 0; f < kFieldCount; ++f) { bins_[f]->begin(t0, t1, cols); }
     flush(now, true);
-    display_.powerForSd();
     int64_t newest = sd_.loadHistory(bins_, t0, t1);
     for (size_t i = 0; i < ring_->size(); ++i) {
         const Sample& s = ring_->at(i);
@@ -725,15 +740,6 @@ void App::flush(uint32_t now, bool force)
     uint32_t interval = sd_.problem() ? kSdRetryMs : kSdFlushMs;
     bool due = force || diff(now, last_flush_ms_) >= (int32_t)interval || sd_.bufferNearlyFull();
     if (!due) { return; }
-    if (!display_.busPowered()) {
-        // Panel off (idle): wait for the next idle refresh unless the buffer is about
-        // to overflow on a working card.
-        if (!(sd_.bufferNearlyFull() && !sd_.problem())) {
-            KF_TRACE("flush due, panel off, %u rows wait", (unsigned)sd_.queued());
-            return;
-        }
-        display_.powerForSd();
-    }
     bool ok = sd_.flush();
     KF_TRACE("flush %d, %u rows left, problem %d", (int)ok, (unsigned)sd_.queued(), (int)sd_.problem());
     last_flush_ms_ = now;
