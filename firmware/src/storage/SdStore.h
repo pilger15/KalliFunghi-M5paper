@@ -1,5 +1,6 @@
 /* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: High | Reviewed by: None */
-// SD card: mount, batched CSV logging, config.json, history for long plot ranges.
+// SD card: mount, batched CSV logging into the current measurement run (RunLog.h),
+// config.json, history for long plot ranges.
 //
 // SPI sharing: SD and IT8951 share SPI3 (SCK14 MOSI12 MISO13). Every method here
 // must only be called while no refresh is being pushed. The EPD stays powered
@@ -9,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "ColumnBins.h"
+#include "RunLog.h"
 #include "SampleRing.h"
 #include "Types.h"
 #include "config.h"
@@ -34,7 +36,8 @@ public:
     void queue(const Sample& s);
     size_t queued() const { return count_; }
     bool bufferNearlyFull() const { return count_ >= kCapacity - 8; }
-    // Writes all queued rows. Keeps them on failure. Returns true if the queue is empty after.
+    // Writes all queued rows into the current run. Keeps them on failure, and while no
+    // run is set. Returns true if the queue is empty after.
     bool flush();
     // Appends a line to /log/sync.csv: utc_iso,correction_s.
     void logSync(int64_t utc, int64_t correction_s);
@@ -47,9 +50,24 @@ public:
     /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
     void setTime(int64_t utc, bool clock_valid) { now_utc_ = utc; now_valid_ = clock_valid; }
     void event(const char* fmt, ...) __attribute__((format(printf, 2, 3)));
-    size_t pendingEvents() const { return ev_count_; }
+    size_t pendingEvents() const { return ev_count_ + info_count_; }
     bool eventsNearlyFull() const { return ev_count_ >= kEventSlots - 4; }
     bool flushEvents();
+
+    // Measurement run. On every mount its folder and run.txt are created if missing (new
+    // or swapped card); existing folders are never renamed.
+    /* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+    void setRun(const RunInfo& run);
+    bool hasRun() const { return run_.run > 0; }
+    // Mounts the card if needed. True if it can be written.
+    bool ready() { return remountIfNeeded() && !full_; }
+    // Highest run number in /log, 0 if none. Call after ready().
+    int maxRunOnCard();
+    // Creates the run folder with a fresh run.txt and switches to it. The caller flushes
+    // the old run's rows first.
+    bool startRun(const RunInfo& run);
+    // Appends a key=value line to run.txt. Queued like event(), written by the next flush.
+    void runInfo(const char* fmt, ...) __attribute__((format(printf, 2, 3)));
 
     // Fills wifi from /config.json if present ({"wifi":{"ssid":..,"password":..}}).
     // Leaves it unchanged otherwise.
@@ -64,10 +82,14 @@ public:
 private:
     static constexpr size_t kCapacity = kLogBufferRows;
     bool writeRows(const char* path, size_t first, size_t n);
+    bool ensureRunDir();
+    bool writeRunInfoFile(const char* extra_line);
+    bool flushRunInfo();
     bool remountIfNeeded();
     void checkFree();
 #if KF_TRACE_ENABLED
     void traceCard();
+    void traceRun();
 #endif
 
     static constexpr size_t kEventSlots = 16;
@@ -89,6 +111,11 @@ private:
     char ev_[kEventSlots][kEventLen];
     size_t ev_head_ = 0;
     size_t ev_count_ = 0;
+
+    static constexpr size_t kInfoSlots = 4;
+    RunInfo run_;
+    char info_[kInfoSlots][kEventLen];
+    size_t info_count_ = 0;
 };
 
 } // namespace kf

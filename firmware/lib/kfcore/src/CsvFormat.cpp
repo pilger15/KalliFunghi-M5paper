@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 #include "CsvFormat.h"
 
 #include <math.h>
@@ -14,13 +14,6 @@ void formatIsoUtc(int64_t utc, char* buf, size_t len)
 {
     Civil c = civilFromUtc(utc);
     snprintf(buf, len, "%04d-%02d-%02dT%02d:%02d:%02dZ", c.year, c.month, c.day, c.hour, c.minute, c.second);
-}
-
-/* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
-void dayLogPath(int64_t utc, char* buf, size_t len)
-{
-    Civil c = civilFromUtc(utc);
-    snprintf(buf, len, "/log/%04d-%02d-%02d.csv", c.year, c.month, c.day);
 }
 
 /* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */

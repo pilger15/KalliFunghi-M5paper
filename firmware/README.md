@@ -39,9 +39,10 @@ pio test -e native
   - battery percent, or "USB"
   - mode (Ultra / Eco / Fast); `*` = interactive
   - age of the last sync
+  - Home view only: age of the last CO2 calibration (`CO2 cal 12d`, `<1d` or `never`) and the run (`Run 4, day 12`; day 1 is the start date, local time)
   - marks: `! Clock` (never synced, or last sync more than 30 days ago), plug icon (USB power), `! SD` (card missing, full or failing), `Cal due`
   - buttons **Sync** and **Settings**
-- **Settings:** plot range (1 h, 6 h, 24 h, 7 d), sampling mode, auto-sync on/off, SCD41 temperature offset (0 to 10 degC in 0.5 steps), **Calibrate now (new batch)**.
+- **Settings:** plot range (1 h, 6 h, 24 h, 7 d), sampling mode, auto-sync on/off, SCD41 temperature offset (0 to 10 degC in 0.5 steps), **Calibrate CO2 now** (with the date of the last calibration), **New measurement** (with the current run and its start date).
 - **Interactive mode:** any touch starts it for 5 min; every touch restarts the timer.
 
 ### Tap vs double tap
@@ -56,7 +57,9 @@ The chip stays awake during the window (no light sleep), because M5Unified's lig
 
 Automatic self-calibration (ASC) is off: a grow box rarely sees fresh air, so ASC would drift the readings. Instead there is a forced recalibration to 420 ppm:
 - **Weekly reminder:** a box at the bottom of the plots says "CO2 calibration due". Place the device outdoors for 30 min, then press **Calibrated**. **Postpone** hides the box for 24 h. The device keeps working normally while the box is shown.
-- **Calibrate now (new batch):** in Settings, for example right before a new batch. Same flow, with **Cancel**.
+- **Calibrate CO2 now:** in Settings at any time. Same flow, with **Cancel**. **New measurement** offers it too.
+
+"Last calibrated" only counts a successful forced recalibration. The reminder interval starts at the last calibration, or at the first boot if there was none (NVS `calBase`). Firmware before 2026.11.03 stored the first boot time as the calibration time; at the first boot with this firmware that value becomes `calBase` and the calibration counts as "never" (no earlier firmware logged calibrations, so a real one cannot be told apart). Every calibration is written to `error.log` and as `calibration=` to the run's `run.txt`.
 
 The datasheet wants at least 3 min of continuous measurement in the current mode before the recalibration. In Eco and Fast that is normally already the case, so it runs at once. In Ultra-Eco, pressing Calibrated starts 3 min of back-to-back single shots first: keep the device outdoors during the countdown. The result (correction in ppm) is shown for 2 min.
 
@@ -96,7 +99,46 @@ Optional, in the SD card root. It overrides the compiled-in hotspot:
 
 ## SD log
 
-- One file per UTC day: `/log/YYYY-MM-DD.csv`, one row per sample:
+### Folder layout
+
+Data is grouped in **measurement runs**, one per grow batch. Each run has its own folder; the plots show only the current run.
+
+```
+/log/error.log                      events and errors, all runs (utc_iso,clock,event)
+/log/sync.csv                       clock syncs, all runs (utc_iso,correction_s)
+/log/m004_2026-11-03/               run 4, started 3 Nov 2026 (local date)
+    run.txt                         run info, see below
+    2026-11-03.csv                  one CSV per UTC day
+    2026-11-04.csv
+    unsynced.csv                    rows logged before the first clock sync, if any
+/log/m005_unsynced/                 a run started before the clock was ever synced
+/log/2026-10-24.csv, unsynced.csv   flat files from firmware before 2026.11.03: left alone, not plotted
+```
+
+- **Folder name:** `m`, the run number with at least 3 digits, `_`, the start date in local time (`YYYY-MM-DD`), or `unsynced` if the clock had never been synced. A folder is never renamed; run 1000 is `m1000_...`. Any folder in `/log` matching `m<digits>_*` is a run; everything else (`error.log`, `sync.csv`, old flat files) is not.
+- **Day files:** named by the UTC date, same CSV format as below.
+- **`run.txt`:** plain text, one `key=value` per line. The first six lines are written when the run starts; later events are appended:
+
+  ```
+  run=4
+  start_utc=2026-11-03T09:12:00Z
+  clock=synced                            (unsynced: start_utc is on the unsynced clock)
+  firmware=2026.11.03
+  last_cal_utc=2026-10-28T08:00:00Z       (or never; calibration state at the start)
+  temp_offset_c=4.5                       (SCD41 offset at the start)
+  calibration=2026-11-05T10:30:00Z,+12    appended per successful CO2 calibration (ppm correction)
+  clock_synced=2026-11-03T11:00:00Z,+3600 appended at the first sync of a run with unsynced rows (correction s)
+  recreated_utc=2026-11-20T08:00:00Z      appended if the folder was recreated on another card
+  ```
+
+  Readers should ignore unknown keys.
+- **Run state in NVS:** run number, folder name and start time survive reboots and firmware updates. On boot the firmware keeps writing into that folder; if it is missing (new or swapped card), it is created with a new `run.txt` from the NVS values plus `recreated_utc=`.
+- **New run:** Settings, **New measurement**. The number is one above both the NVS run and the highest run folder on the card, so a swapped card never gets a number twice. The RAM buffer is written into the old run first; if that fails (card missing or full), the run is not switched. `error.log` gets `new measurement m005_2026-11-20`.
+- **First boot with this firmware:** run 1 (or one above the highest on the card) starts automatically, as soon as a card is usable.
+
+### CSV format
+
+- One row per sample:
 
   ```
   utc_iso,co2_ppm,temp_c,rh_pct,lux,mode,clock
@@ -106,10 +148,10 @@ Optional, in the SD card root. It overrides the compiled-in hotspot:
 
 - A missing sensor leaves its fields empty.
 - `mode` is `ultra`, `eco` or `fast`.
-- **Clock never synced:** rows go to `/log/unsynced.csv` with `clock=unsynced`, so they don't land in a wrong day file. Every sync appends `utc_iso,correction_s` to `/log/sync.csv`, so the unsynced rows can be shifted later. In RAM, the plot data is shifted automatically at the first sync.
+- **Clock never synced:** rows go to `unsynced.csv` in the run folder with `clock=unsynced`, so they don't land in a wrong day file. Every sync appends `utc_iso,correction_s` to `/log/sync.csv`, so the unsynced rows can be shifted later. In RAM, the plot data is shifted automatically at the first sync.
 - **Batched writes:** rows are buffered in RAM (256 rows) and written every 5 min together with the idle display refresh. They are also written before a mode change, a sync and a low-battery power-off.
 - **Missing or full card:** the device keeps running and shows `! SD`. The card is mounted again at the next write. If the RAM buffer overflows, the oldest rows are dropped.
-- **Long plot ranges:** 24 h and 7 d are built from the day files. 1 h and 6 h come from RAM (PSRAM ring).
+- **Long plot ranges:** 24 h and 7 d are built from the current run's day files. 1 h and 6 h come from RAM (PSRAM ring), which is cleared when a new run starts.
 
 ## Power
 
@@ -179,6 +221,7 @@ lib/kfcore/src/   pure logic, no Arduino (unit tested)
   Layout            screen geometry and hit-testing
   ColumnBins        min/max per pixel column
   SampleRing        RAM ring of samples
+  RunLog            run folder names and paths, run.txt
   CsvFormat, TimeUtil, CalReminder, BatteryMonitor, Types
 src/
   App               tick loop, wiring

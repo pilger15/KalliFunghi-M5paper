@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 #include "Ui.h"
 
 #include <M5Unified.h>
@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include "RunLog.h"
 #include "TimeUtil.h"
 #include "config.h"
 
@@ -40,6 +41,23 @@ int64_t localOffset(int64_t utc)
     localtime_r(&t, &lt);
     Civil c{lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec};
     return utcFromCivil(c) - utc;
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
+// Day of the current run (1 = start date), 0 = no run.
+int runDay(const UiModel& m)
+{
+    if (m.run_no <= 0) { return 0; }
+    return runDayIndex(m.run_start_utc, localOffset(m.run_start_utc), m.utc, localOffset(m.utc));
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
+// Whole days since the last calibration, -1 = never.
+int64_t calAgeDays(const UiModel& m)
+{
+    if (m.last_cal_utc == 0) { return -1; }
+    int64_t age = m.utc - m.last_cal_utc;
+    return age < 0 ? 0 : age / 86400;
 }
 
 /* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
@@ -88,7 +106,7 @@ Rect Ui::graphRect(const Rect& tile)
     return g;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
 UiShape Ui::shape(const UiModel& m)
 {
     UiShape s;
@@ -97,10 +115,11 @@ UiShape Ui::shape(const UiModel& m)
     s.box_buttons = m.box_buttons;
     s.cal_manual = m.cal_manual;
     s.cal_ready = !m.calibrating;
+    s.ask = m.ask != Ask::None;
     return s;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 uint32_t Ui::signature(const UiModel& m)
 {
     uint32_t h = 2166136261u;
@@ -121,6 +140,7 @@ uint32_t Ui::signature(const UiModel& m)
     mix(h, m.cal_due_mark);
     mix(h, m.box);
     mix(h, m.box_buttons);
+    mix(h, m.ask);
     mix(h, m.cal_manual);
     mix(h, m.calibrating);
     mix(h, m.cal_countdown_s);
@@ -128,6 +148,12 @@ uint32_t Ui::signature(const UiModel& m)
     mix(h, m.auto_sync);
     mix(h, m.temp_offset);
     mix(h, m.last_cal_utc);
+    int64_t cal_days = calAgeDays(m);
+    mix(h, cal_days);
+    mix(h, m.run_no);
+    mix(h, m.run_start_utc);
+    int run_day = runDay(m);
+    mix(h, run_day);
     for (int f = 0; f < kFieldCount; ++f) {
         mix(h, m.sensor_ok[f]);
         mix(h, m.has_current[f]);
@@ -179,7 +205,7 @@ void Ui::draw(const UiModel& m)
     drawSidebar(m);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 void Ui::drawSidebar(const UiModel& m)
 {
     auto& d = M5.Display;
@@ -213,8 +239,22 @@ void Ui::drawSidebar(const UiModel& m)
     else { snprintf(buf, sizeof(buf), "Sync %lldd", (long long)(age / 86400)); }
     text(buf, cx, 160, &fonts::FreeSans9pt7b, textdatum_t::top_center);
 
-    // Marks, one per line.
+    // Home only: calibration age and run day (the other views use this space).
     int y = 190;
+    if (m.view == View::Home) {
+        int64_t cal_days = calAgeDays(m);
+        if (cal_days < 0) { snprintf(buf, sizeof(buf), "CO2 cal never"); }
+        else if (cal_days == 0) { snprintf(buf, sizeof(buf), "CO2 cal <1d"); }
+        else { snprintf(buf, sizeof(buf), "CO2 cal %lldd", (long long)cal_days); }
+        text(buf, cx, 182, &fonts::FreeSans9pt7b, textdatum_t::top_center);
+        if (m.run_no > 0) {
+            snprintf(buf, sizeof(buf), "Run %d, day %d", m.run_no, runDay(m));
+            text(buf, cx, 204, &fonts::FreeSans9pt7b, textdatum_t::top_center);
+        }
+        y = 232;
+    }
+
+    // Marks, one per line.
     if (!m.clock_valid || age < 0 || age > kSyncWarnAgeS) {
         text("! Clock", cx, y, &fonts::FreeSansBold12pt7b, textdatum_t::top_center);
         y += 30;
@@ -328,7 +368,7 @@ void Ui::drawPlot(const UiModel& m, int field, const Rect& r, bool large)
     }
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
 void Ui::drawSettings(const UiModel& m)
 {
     static const char* const kRangeLabels[4] = {"1 h", "6 h", "24 h", "7 d"};
@@ -365,13 +405,28 @@ void Ui::drawSettings(const UiModel& m)
         time_t t = (time_t)m.last_cal_utc;
         localtime_r(&t, &lt);
         snprintf(buf, sizeof(buf), "last %02d.%02d.%04d", lt.tm_mday, lt.tm_mon + 1, lt.tm_year + 1900);
-        Rect r = layout::settingsRow(4);
-        text(buf, r.x, r.y + r.h - 4, &fonts::FreeSans9pt7b, textdatum_t::bottom_left);
+    } else {
+        snprintf(buf, sizeof(buf), "never");
     }
-    drawButton(layout::calibrateNowButton(), "Calibrate now (new batch)", false, !m.calibrating);
+    Rect r4 = layout::settingsRow(4);
+    text(buf, r4.x, r4.y + r4.h - 2, &fonts::FreeSans9pt7b, textdatum_t::bottom_left);
+    drawButton(layout::calibrateNowButton(), "Calibrate CO2 now", false, !m.calibrating);
+
+    label(5, "Measurement");
+    if (m.run_no > 0) {
+        struct tm lt;
+        time_t t = (time_t)m.run_start_utc;
+        localtime_r(&t, &lt);
+        snprintf(buf, sizeof(buf), "Run %d since %02d.%02d.", m.run_no, lt.tm_mday, lt.tm_mon + 1);
+    } else {
+        snprintf(buf, sizeof(buf), "no run yet");
+    }
+    Rect r5 = layout::settingsRow(5);
+    text(buf, r5.x, r5.y + r5.h - 2, &fonts::FreeSans9pt7b, textdatum_t::bottom_left);
+    drawButton(layout::newRunButton(), "New measurement", false, !m.calibrating);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
 void Ui::drawBox(const UiModel& m)
 {
     auto& d = M5.Display;
@@ -386,6 +441,15 @@ void Ui::drawBox(const UiModel& m)
     }
     char line1[48];
     char line2[48];
+    if (m.ask != Ask::None) {
+        bool new_run = m.ask == Ask::NewRun;
+        text(new_run ? "Start new measurement?" : "Calibrate CO2 now?", b.x + 14, b.y + 14, &fonts::FreeSans9pt7b);
+        text(new_run ? "Earlier data stays on the card." : "Needs the device outdoors, about 30 min.",
+             b.x + 14, b.y + 44, &fonts::FreeSans9pt7b);
+        drawButton(layout::calConfirmButton(), "Yes", false);
+        drawButton(layout::calSecondButton(), new_run ? "Cancel" : "Later", false);
+        return;
+    }
     if (m.calibrating) {
         snprintf(line1, sizeof(line1), "Calibrating, keep it outdoors.");
         snprintf(line2, sizeof(line2), "%d:%02d left", m.cal_countdown_s / 60, m.cal_countdown_s % 60);

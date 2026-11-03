@@ -122,6 +122,11 @@ void App::setup()
         settings_.sync_running = false;
         settings_.save();
     }
+    if (settings_.cal_migrated) {
+        // Older firmware stored the first boot time as the calibration time.
+        if (settings_.cal.base_utc != 0) { sd_.event("calibration state migrated: no calibration on record"); }
+        settings_.save();
+    }
     // Write the boot line now: the reset reason must not wait 5 min in the RAM ring,
     // where another reset or an event burst would lose it.
     sd_.flushEvents();
@@ -131,6 +136,8 @@ void App::setup()
     for (int f = 0; f < kFieldCount; ++f) {
         bins_[f] = new (allocPsram<ColumnBins>(1)) ColumnBins();
     }
+    if (settings_.run_no > 0) { sd_.setRun(runFromSettings()); }
+    else { startRun(millis(), true); }   // first boot with runs; flush() retries without a card
     if (clockValid()) { sd_.loadRing(*ring_, rtc_utc_, kRingSeconds); }
     if (!ring_->empty()) {
         latest_ = ring_->newest();
@@ -154,9 +161,9 @@ void App::setup()
     }
     light_.begin(Wire);
 
-    if (settings_.cal.last_cal_utc == 0) {
-        // No reminder on day one.
-        settings_.cal.calibrated(rtc_utc_);
+    if (settings_.cal.intervalStart() == 0) {
+        // No reminder on day one. Not a calibration: the sidebar still says "never".
+        settings_.cal.base_utc = rtc_utc_;
         settings_.save();
     }
 
@@ -214,14 +221,15 @@ void App::loop()
     sleep(now);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::handleTouch(uint32_t now)
 {
     M5.update();
     UiModel shape_model;
     shape_model.view = view_;
-    shape_model.box = calBoxVisible(utcNow()) || (message_[0] != '\0');
-    shape_model.box_buttons = calBoxVisible(utcNow());
+    shape_model.ask = ask_;
+    shape_model.box = ask_ != Ask::None || calBoxVisible(utcNow()) || (message_[0] != '\0');
+    shape_model.box_buttons = ask_ != Ask::None || calBoxVisible(utcNow());
     shape_model.cal_manual = cal_manual_open_;
     shape_model.calibrating = calibrating_;
     UiShape shape = Ui::shape(shape_model);
@@ -247,7 +255,7 @@ void App::handleTouch(uint32_t now)
     }
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::act(const Hit& h, uint32_t now)
 {
     KF_TRACE("tap target %d/%d", (int)h.target, h.index);
@@ -322,6 +330,38 @@ void App::act(const Hit& h, uint32_t now)
     case Target::CalCancel:
         cal_manual_open_ = false;
         calibrating_ = false;
+        markDirty(false, now);
+        break;
+    case Target::NewRun:
+        if (!calibrating_) {
+            ask_ = Ask::NewRun;
+            cal_manual_open_ = false;
+            message_[0] = '\0';
+            view_ = View::Home;
+            markDirty(true, now);
+        }
+        break;
+    case Target::AskYes:
+        if (ask_ == Ask::NewRun) {
+            ask_ = Ask::None;
+            // The old run's rows go into its folder first. If that fails they would end up
+            // in the new run, so the run is not switched.
+            bool flushed = settings_.run_no == 0 || (sd_.flush() && sd_.queued() == 0);
+            if (!flushed) {
+                setMessage("SD not ready, new measurement not started", now, kMessageMs);
+            } else if (!startRun(now, false)) {
+                setMessage("SD error, new measurement not started", now, kMessageMs);
+            } else {
+                ask_ = Ask::CalNow;
+            }
+        } else if (ask_ == Ask::CalNow) {
+            ask_ = Ask::None;
+            if (!calibrating_) { cal_manual_open_ = true; }
+        }
+        markDirty(false, now);
+        break;
+    case Target::AskNo:
+        ask_ = Ask::None;
         markDirty(false, now);
         break;
     default:
@@ -491,7 +531,7 @@ void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, 
     ++data_version_;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::calibration(uint32_t now)
 {
     if (!calibrating_) { return; }
@@ -507,9 +547,14 @@ void App::calibration(uint32_t now)
         settings_.cal.calibrated(utcNow());
         settings_.save();
         cal_manual_open_ = false;
+        char iso[24];
+        formatIsoUtc(utcNow(), iso, sizeof(iso));
+        sd_.event("co2 calibration ok, correction %+d ppm", corr);
+        sd_.runInfo("calibration=%s,%+d", iso, corr);
         snprintf(msg, sizeof(msg), "Calibrated to %u ppm, correction %+d ppm", (unsigned)kFrcTargetPpm, corr);
     } else {
         snprintf(msg, sizeof(msg), "Calibration failed, try again");
+        sd_.event("co2 calibration failed");
     }
     KF_TRACE("%s", msg);
     setMessage(msg, now, kMessageMs);
@@ -528,6 +573,7 @@ void App::autoSync(uint32_t now)
 }
 
 /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Also rebases the calibration and run start after the first sync.
 void App::runSync(bool manual, uint32_t now)
 {
     if (!psm_.usb() && battery_.mv() < kBatterySyncMinMv) {
@@ -570,6 +616,14 @@ void App::runSync(bool manual, uint32_t now)
             // Data and timers recorded on the unsynced clock move to the real time line.
             ring_->rebaseUnsynced(res.correction_s);
             settings_.cal.rebase(res.correction_s);
+            // A run started on the unsynced clock: its start moves too. The folder name
+            // (m001_unsynced) stays; run.txt notes the shift for unsynced.csv.
+            if (strstr(settings_.run_dir, "unsynced")) { settings_.run_start_utc += res.correction_s; }
+            if (settings_.run_no > 0) {
+                char iso[24];
+                formatIsoUtc(res.utc, iso, sizeof(iso));
+                sd_.runInfo("clock_synced=%s,%+lld", iso, (long long)res.correction_s);
+            }
             bins_cached_ = false;
         }
         settings_.last_sync_utc = res.utc;
@@ -582,6 +636,56 @@ void App::runSync(bool manual, uint32_t now)
     if (manual || res.code == SyncResult::Ok) { setMessage(msg, now, kMessageMs); }
     else { message_[0] = '\0'; }
     markDirty(false, now);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// New measurement run: folder mNNN_<local date> (or mNNN_unsynced) with run.txt, number
+// one above both NVS and the card. Then the plots start empty. The caller has flushed
+// the old run's rows.
+bool App::startRun(uint32_t now, bool automatic)
+{
+    if (!sd_.ready()) { return false; }
+    int64_t utc = utcNow();
+    RunInfo r;
+    r.run = nextRunNumber(settings_.run_no, sd_.maxRunOnCard());
+    if (clockValid()) {
+        struct tm lt;
+        clock_.local(utc, lt);
+        Civil c{lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, 0, 0, 0};
+        runDirName(r.run, &c, r.dir, sizeof(r.dir));
+    } else {
+        runDirName(r.run, nullptr, r.dir, sizeof(r.dir));
+    }
+    r.start_utc = utc;
+    r.last_cal_utc = settings_.cal.last_cal_utc;
+    r.temp_offset = settings_.temp_offset;
+    if (!sd_.startRun(r)) { return false; }
+    settings_.run_no = r.run;
+    snprintf(settings_.run_dir, sizeof(settings_.run_dir), "%s", r.dir);
+    settings_.run_start_utc = utc;
+    settings_.save();
+    sd_.event("new measurement %s%s", r.dir, automatic ? " (first run on this device)" : "");
+    sd_.flushEvents();
+    ring_->clear();
+    bins_cached_ = false;
+    ++data_version_;
+    markDirty(false, now);
+    KF_TRACE("run %d started, %s", r.run, r.dir);
+    return true;
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+// The current run as kept in NVS. Calibration and offset are today's values: only used
+// when run.txt must be recreated on another card.
+RunInfo App::runFromSettings() const
+{
+    RunInfo r;
+    r.run = settings_.run_no;
+    snprintf(r.dir, sizeof(r.dir), "%s", settings_.run_dir);
+    r.start_utc = settings_.run_start_utc;
+    r.last_cal_utc = settings_.cal.last_cal_utc;
+    r.temp_offset = settings_.temp_offset;
+    return r;
 }
 
 /* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
@@ -673,7 +777,7 @@ void App::prepareBins(uint32_t now)
     KF_TRACE("history rebuilt, range %lu s, newest %lld", (unsigned long)range, (long long)newest);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 void App::buildModel(UiModel& m, uint32_t now)
 {
     int64_t utc = utcNow();
@@ -692,8 +796,9 @@ void App::buildModel(UiModel& m, uint32_t now)
     bool cal_box = calBoxVisible(utc);
     m.cal_due_mark = cal_box;
     if (message_[0] && diff(now, message_until_) >= 0) { message_[0] = '\0'; }
-    m.box = cal_box || message_[0] != '\0';
-    m.box_buttons = cal_box;
+    m.ask = ask_;
+    m.box = ask_ != Ask::None || cal_box || message_[0] != '\0';
+    m.box_buttons = ask_ != Ask::None || cal_box;
     m.cal_manual = cal_manual_open_;
     m.calibrating = calibrating_;
     if (calibrating_) {
@@ -704,6 +809,8 @@ void App::buildModel(UiModel& m, uint32_t now)
     m.auto_sync = settings_.auto_sync;
     m.temp_offset = settings_.temp_offset;
     m.last_cal_utc = settings_.cal.last_cal_utc;
+    m.run_no = settings_.run_no;
+    m.run_start_utc = settings_.run_start_utc;
 
     bool scd_ok = scd_.present() && scd_missed_ < kScdMissedIntervalsReinit;
     m.sensor_ok[0] = m.sensor_ok[1] = m.sensor_ok[2] = scd_ok;
@@ -757,6 +864,7 @@ void App::flush(uint32_t now, bool force)
     bool due = force || diff(now, last_flush_ms_) >= (int32_t)interval || sd_.bufferNearlyFull()
                || sd_.eventsNearlyFull();
     if (!due) { return; }
+    if (settings_.run_no == 0) { startRun(now, true); }   // first boot had no usable card
     bool ok = sd_.flush();
     KF_TRACE("flush %d, %u rows left, problem %d", (int)ok, (unsigned)sd_.queued(), (int)sd_.problem());
     last_flush_ms_ = now;

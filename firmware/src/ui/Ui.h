@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 // Screen rendering. Draws a complete view from a Model; the App decides when.
 // Black and white only (no gray), so DU partials and GC16 look the same.
 #pragma once
@@ -9,6 +9,9 @@
 #include "Types.h"
 
 namespace kf {
+
+// Yes / No question in the bottom strip.
+enum class Ask : uint8_t { None, NewRun, CalNow };
 
 struct UiModel {
     View view = View::Home;
@@ -29,6 +32,7 @@ struct UiModel {
     // Bottom strip: calibration box or a message.
     bool box = false;
     bool box_buttons = false;
+    Ask ask = Ask::None;             // the strip asks this instead of the calibration box
     bool cal_manual = false;
     bool calibrating = false;
     int cal_countdown_s = 0;
@@ -36,7 +40,9 @@ struct UiModel {
 
     bool auto_sync = true;
     float temp_offset = 0.0f;
-    int64_t last_cal_utc = 0;
+    int64_t last_cal_utc = 0;        // 0 = never calibrated
+    int run_no = 0;                  // 0 = no run yet
+    int64_t run_start_utc = 0;
 
     bool sensor_ok[kFieldCount] = {false, false, false, false};
     const ColumnBins* bins[kFieldCount] = {nullptr, nullptr, nullptr, nullptr};

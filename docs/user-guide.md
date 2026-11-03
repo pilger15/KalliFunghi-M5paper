@@ -1,4 +1,4 @@
-<!-- Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Low | Reviewed by: None -->
+<!-- Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Low | Reviewed by: None -->
 <!-- Exported from the Claude Docs "KalliFunghi User Guide" (https://claude.ai/artifact/4k9WHv2QxgfjobWTJo262V). Edit there, then export again. -->
 
 # KalliFunghi User Guide
@@ -19,7 +19,7 @@ KalliFunghi logs CO2, temperature, humidity and light in your grow box, shows th
 
 Four plots on the left (CO2, temperature, humidity, light), the sidebar with status and the **Sync** and **Settings** buttons on the right. The online version of this guide shows a picture of the layout.
 
-The home screen shows the last 6 h of each value (change the range in Settings): the current value large, plus the lowest and highest value in that time. The sidebar always shows the time and date, battery, mode and how long ago the clock was synced. Marks appear there only when something needs attention (see Troubleshooting).
+The home screen shows the last 6 h of each value (change the range in Settings): the current value large, plus the lowest and highest value in that time. The sidebar always shows the time and date, battery, mode and how long ago the clock was synced. On the home screen it also shows how long ago the CO2 sensor was calibrated ("CO2 cal 12d", or "never") and the current measurement with its day ("Run 4, day 12"). Marks appear there only when something needs attention (see Troubleshooting).
 
 ## Touch controls
 
@@ -78,7 +78,8 @@ Tap **Settings** in the sidebar; tap it again or double tap to leave. Settings a
 | Sampling mode | Ultra-Eco, Eco, Fast | Eco |
 | Auto-sync | On, Off | On |
 | Temperature offset | 0 to 10 °C in 0.5 steps | 0 °C |
-| CO2 calibration | Calibrate now (new batch) | — |
+| CO2 calibration | Calibrate CO2 now | — |
+| Measurement | New measurement | — |
 
 **CO2 calibration:** the device corrects its CO2 reading against fresh outdoor air (420 ppm). Once a week a box at the bottom of the screen reminds you; the device keeps working normally while it is shown.
 
@@ -86,13 +87,15 @@ Tap **Settings** in the sidebar; tap it again or double tap to leave. Settings a
 2. Tap **Calibrated**. Leave it outside until the result appears; sometimes it first counts down up to 3 min.
 3. The box shows the correction and disappears. **Postpone** hides the reminder for 24 h.
 
-Before a new batch, use **Calibrate now (new batch)** in Settings: same steps, and the weekly reminder starts again from that day.
+You can also calibrate at any time with **Calibrate CO2 now** in Settings: same steps, and the weekly reminder starts again from that day. Settings shows the date of the last calibration.
+
+**New measurement:** tap it when you start a new grow batch. After you confirm, the device starts a new run: the plots start empty and the data goes into a new folder on the SD card. Earlier data stays on the card. The device then offers the CO2 calibration (**Yes** or **Later**); right before a new batch is a good time for it. If the SD card is missing or full, no new run is started.
 
 **Temperature offset:** the device warms itself slightly, so temperature can read a little high and humidity a little low. After 30 min next to a trusted thermometer, set the difference as the offset (shown temperature minus thermometer). The offset can only lower the reading.
 
 ## Data and battery
 
-**Data:** every reading goes to the SD card, one file per day in `/log/`, for example `2026-10-26.csv`. Open it in Excel or any spreadsheet. Times are in UTC (local time minus 1 h in winter, minus 2 h in summer). Readings from before the first sync are in `/log/unsynced.csv`.
+**Data:** every reading goes to the SD card, into one folder per measurement in `/log/`, for example `/log/m004_2026-11-03/` for run 4, started on 3 Nov 2026. Inside is one file per day, for example `2026-11-03.csv`; open it in Excel or any spreadsheet. Times are in UTC (local time minus 1 h in winter, minus 2 h in summer). Readings from before the first sync are in `unsynced.csv` in the same folder. `run.txt` lists the run's start, the calibration state and offset at the start, and each calibration. Files directly in `/log/` with a date name come from older firmware.
 
 | Column | Meaning |
 | --- | --- |

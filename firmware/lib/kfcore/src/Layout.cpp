@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 #include "Layout.h"
 
 namespace kf {
@@ -6,9 +6,10 @@ namespace layout {
 
 namespace {
 
+// Six settings rows: 20 + 5 * 86 + 72 = 522 <= 540.
 constexpr int16_t kRowY0 = 20;
-constexpr int16_t kRowPitch = 100;
-constexpr int16_t kRowH = 80;
+constexpr int16_t kRowPitch = 86;
+constexpr int16_t kRowH = 72;
 constexpr int16_t kBtnX0 = 250;
 constexpr int16_t kBtnW = 130;
 constexpr int16_t kBtnGap = 12;
@@ -51,8 +52,9 @@ Rect offsetMinusButton() { return mk(kBtnX0, kRowY0 + 3 * kRowPitch, 100, kRowH)
 Rect offsetValue() { return mk(kBtnX0 + 110, kRowY0 + 3 * kRowPitch, 150, kRowH); }
 Rect offsetPlusButton() { return mk(kBtnX0 + 270, kRowY0 + 3 * kRowPitch, 100, kRowH); }
 Rect calibrateNowButton() { return mk(kBtnX0, kRowY0 + 4 * kRowPitch, 560, kRowH); }
+Rect newRunButton() { return mk(kBtnX0, kRowY0 + 5 * kRowPitch, 560, kRowH); }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 Hit hitTest(const UiShape& ui, int x, int y)
 {
     Hit h;
@@ -71,11 +73,17 @@ Hit hitTest(const UiShape& ui, int x, int y)
         if (offsetMinusButton().contains(x, y)) { h.target = Target::OffsetMinus; return h; }
         if (offsetPlusButton().contains(x, y)) { h.target = Target::OffsetPlus; return h; }
         if (calibrateNowButton().contains(x, y)) { h.target = Target::CalibrateNow; return h; }
+        if (newRunButton().contains(x, y)) { h.target = Target::NewRun; return h; }
         return h;
     }
 
     if (ui.cal_box && calBox().contains(x, y)) {
         if (!ui.box_buttons) { return h; }
+        if (ui.ask) {
+            if (calConfirmButton().contains(x, y)) { h.target = Target::AskYes; }
+            else if (calSecondButton().contains(x, y)) { h.target = Target::AskNo; }
+            return h;
+        }
         if (calConfirmButton().contains(x, y) && ui.cal_ready) { h.target = Target::CalConfirm; }
         else if (calSecondButton().contains(x, y)) {
             // While calibrating the second button cancels, also for a reminder box.

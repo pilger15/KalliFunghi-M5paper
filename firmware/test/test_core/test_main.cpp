@@ -1,7 +1,8 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 // Host unit tests for lib/kfcore: pio test -e native
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include <unity.h>
 #include "BatteryMonitor.h"
@@ -10,6 +11,7 @@
 #include "CsvFormat.h"
 #include "Layout.h"
 #include "PowerStateMachine.h"
+#include "RunLog.h"
 #include "SampleRing.h"
 #include "TapClassifier.h"
 #include "TimeUtil.h"
@@ -89,11 +91,78 @@ void test_csv_missing_sensor_and_unsynced()
     TEST_ASSERT_FALSE(parseRow(kCsvHeader, p));
 }
 
-void test_csv_day_path()
+// ---- RunLog ----
+
+/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+void test_run_paths()
 {
-    char path[32];
-    dayLogPath(utcFromCivil(Civil{2026, 1, 2, 23, 59, 59}), path, sizeof(path));
-    TEST_ASSERT_EQUAL_STRING("/log/2026-01-02.csv", path);
+    char dir[kRunDirMax];
+    Civil d{2026, 11, 3, 0, 0, 0};
+    runDirName(4, &d, dir, sizeof(dir));
+    TEST_ASSERT_EQUAL_STRING("m004_2026-11-03", dir);
+    runDirName(1, nullptr, dir, sizeof(dir));
+    TEST_ASSERT_EQUAL_STRING("m001_unsynced", dir);
+    runDirName(1234, &d, dir, sizeof(dir));
+    TEST_ASSERT_EQUAL_STRING("m1234_2026-11-03", dir);
+
+    char path[kLogPathMax];
+    runDayLogPath("m004_2026-11-03", utcFromCivil(Civil{2026, 11, 4, 23, 59, 59}), path, sizeof(path));
+    TEST_ASSERT_EQUAL_STRING("/log/m004_2026-11-03/2026-11-04.csv", path);
+    runFilePath("m004_2026-11-03", kUnsyncedName, path, sizeof(path));
+    TEST_ASSERT_EQUAL_STRING("/log/m004_2026-11-03/unsynced.csv", path);
+    runFilePath("m004_2026-11-03", kRunInfoName, path, sizeof(path));
+    TEST_ASSERT_EQUAL_STRING("/log/m004_2026-11-03/run.txt", path);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+void test_run_numbering()
+{
+    TEST_ASSERT_EQUAL(4, parseRunNumber("m004_2026-11-03"));
+    TEST_ASSERT_EQUAL(1, parseRunNumber("/log/m001_unsynced"));
+    TEST_ASSERT_EQUAL(1234, parseRunNumber("m1234_2026-11-03"));
+    TEST_ASSERT_EQUAL(-1, parseRunNumber("2026-11-03.csv"));
+    TEST_ASSERT_EQUAL(-1, parseRunNumber("m04_2026-11-03"));    // fewer than 3 digits
+    TEST_ASSERT_EQUAL(-1, parseRunNumber("m004"));              // no underscore
+    TEST_ASSERT_EQUAL(-1, parseRunNumber("error.log"));
+    TEST_ASSERT_EQUAL(1, nextRunNumber(0, 0));                  // first run
+    TEST_ASSERT_EQUAL(5, nextRunNumber(4, 4));
+    TEST_ASSERT_EQUAL(8, nextRunNumber(4, 7));                  // swapped card with more runs
+    TEST_ASSERT_EQUAL(5, nextRunNumber(4, 0));                  // empty new card
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+void test_run_day_index()
+{
+    // Start 3 Nov 23:30 local (CET, +1 h) = 22:30 UTC.
+    int64_t start = utcFromCivil(Civil{2026, 11, 3, 22, 30, 0});
+    TEST_ASSERT_EQUAL(1, runDayIndex(start, 3600, start + 600, 3600));
+    TEST_ASSERT_EQUAL(2, runDayIndex(start, 3600, start + 3600, 3600));       // past local midnight
+    TEST_ASSERT_EQUAL(12, runDayIndex(start, 3600, start + 11 * 86400, 3600));
+    TEST_ASSERT_EQUAL(1, runDayIndex(start, 3600, start - 7200, 3600));       // clock went back
+    // Start in summer (CEST, +2 h) at 00:30 local, now in winter at 00:30 local.
+    int64_t s2 = utcFromCivil(Civil{2026, 10, 24, 22, 30, 0});                // 25 Oct 00:30 CEST
+    int64_t n2 = utcFromCivil(Civil{2026, 10, 26, 23, 30, 0});                // 27 Oct 00:30 CET
+    TEST_ASSERT_EQUAL(3, runDayIndex(s2, 7200, n2, 3600));
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+void test_run_info_text()
+{
+    RunInfo r;
+    r.run = 4;
+    snprintf(r.dir, sizeof(r.dir), "m004_2026-11-03");
+    r.start_utc = utcFromCivil(Civil{2026, 11, 3, 9, 12, 0});
+    r.last_cal_utc = 0;
+    r.temp_offset = 4.5f;
+    char buf[320];
+    formatRunInfo(r, "2026.11.03", buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_STRING("run=4\nstart_utc=2026-11-03T09:12:00Z\nclock=synced\nfirmware=2026.11.03\n"
+                             "last_cal_utc=never\ntemp_offset_c=4.5\n", buf);
+    snprintf(r.dir, sizeof(r.dir), "m001_unsynced");
+    r.last_cal_utc = utcFromCivil(Civil{2026, 10, 28, 8, 0, 0});
+    formatRunInfo(r, "x", buf, sizeof(buf));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "clock=unsynced\n"));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "last_cal_utc=2026-10-28T08:00:00Z\n"));
 }
 
 // ---- SampleRing ----
@@ -371,7 +440,31 @@ void test_layout_settings_targets_do_not_overlap_sidebar()
     }
     Rect c = layout::calibrateNowButton();
     TEST_ASSERT_TRUE(c.x + c.w <= layout::kSidebarX);
-    TEST_ASSERT_TRUE(c.y + c.h <= 540);
+    Rect n = layout::newRunButton();
+    TEST_ASSERT_TRUE(n.x + n.w <= layout::kSidebarX);
+    TEST_ASSERT_TRUE(n.y >= c.y + c.h);
+    TEST_ASSERT_TRUE(n.y + n.h <= 540);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
+void test_layout_new_run_and_question()
+{
+    UiShape ui;
+    ui.view = View::Settings;
+    Rect n = layout::newRunButton();
+    TEST_ASSERT_EQUAL((int)Target::NewRun, (int)layout::hitTest(ui, n.x + 5, n.y + 5).target);
+    Rect c = layout::calibrateNowButton();
+    TEST_ASSERT_EQUAL((int)Target::CalibrateNow, (int)layout::hitTest(ui, c.x + 5, c.y + c.h - 5).target);
+
+    ui.view = View::Home;
+    ui.cal_box = true;
+    ui.box_buttons = true;
+    ui.cal_ready = true;
+    ui.ask = true;   // question wins over a due calibration box
+    Rect y = layout::calConfirmButton();
+    TEST_ASSERT_EQUAL((int)Target::AskYes, (int)layout::hitTest(ui, y.x + 5, y.y + 5).target);
+    Rect s = layout::calSecondButton();
+    TEST_ASSERT_EQUAL((int)Target::AskNo, (int)layout::hitTest(ui, s.x + 5, s.y + 5).target);
 }
 
 // ---- CalReminder and BatteryMonitor ----
@@ -387,6 +480,47 @@ void test_cal_reminder()
     TEST_ASSERT_TRUE(c.due(1000 + kCalIntervalS + kCalSnoozeS, kCalIntervalS));
     c.rebase(500);
     TEST_ASSERT_EQUAL_INT64(1500, c.last_cal_utc);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+void test_cal_never_and_base()
+{
+    // First boot: the reminder starts at the base, but nothing was calibrated.
+    CalReminder c;
+    TEST_ASSERT_FALSE(c.everCalibrated());
+    c.base_utc = 1000;
+    TEST_ASSERT_FALSE(c.everCalibrated());
+    TEST_ASSERT_FALSE(c.due(1000 + kCalIntervalS - 1, kCalIntervalS));
+    TEST_ASSERT_TRUE(c.due(1000 + kCalIntervalS, kCalIntervalS));
+    // A real calibration after the base moves the interval.
+    c.calibrated(5000);
+    TEST_ASSERT_TRUE(c.everCalibrated());
+    TEST_ASSERT_FALSE(c.due(1000 + kCalIntervalS, kCalIntervalS));
+    TEST_ASSERT_TRUE(c.due(5000 + kCalIntervalS, kCalIntervalS));
+    // Rebase leaves "never" alone.
+    CalReminder n;
+    n.base_utc = 100;
+    n.rebase(1000);
+    TEST_ASSERT_EQUAL_INT64(0, n.last_cal_utc);
+    TEST_ASSERT_EQUAL_INT64(1100, n.base_utc);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+void test_cal_legacy_migration()
+{
+    // Old firmware: first boot wrote the boot time as last_cal_utc.
+    CalReminder c;
+    c.last_cal_utc = 2000;
+    c.snooze_until_utc = 0;
+    c.migrateLegacy();
+    TEST_ASSERT_FALSE(c.everCalibrated());
+    TEST_ASSERT_EQUAL_INT64(2000, c.base_utc);
+    TEST_ASSERT_FALSE(c.due(2000 + kCalIntervalS - 1, kCalIntervalS));   // reminder timing kept
+    TEST_ASSERT_TRUE(c.due(2000 + kCalIntervalS, kCalIntervalS));
+    // A fresh device: nothing stored, nothing set.
+    CalReminder f;
+    f.migrateLegacy();
+    TEST_ASSERT_EQUAL_INT64(0, f.intervalStart());
 }
 
 void test_battery_low_needs_consecutive_readings()
@@ -410,7 +544,10 @@ int runAll()
     RUN_TEST(test_time_leap_day_and_epoch);
     RUN_TEST(test_csv_roundtrip);
     RUN_TEST(test_csv_missing_sensor_and_unsynced);
-    RUN_TEST(test_csv_day_path);
+    RUN_TEST(test_run_paths);
+    RUN_TEST(test_run_numbering);
+    RUN_TEST(test_run_day_index);
+    RUN_TEST(test_run_info_text);
     RUN_TEST(test_ring_wrap_and_rebase);
     RUN_TEST(test_bins_min_max_per_column);
     RUN_TEST(test_tap_actionable_is_deferred);
@@ -430,7 +567,10 @@ int runAll()
     RUN_TEST(test_psm_low_battery_terminal);
     RUN_TEST(test_layout_hits);
     RUN_TEST(test_layout_settings_targets_do_not_overlap_sidebar);
+    RUN_TEST(test_layout_new_run_and_question);
     RUN_TEST(test_cal_reminder);
+    RUN_TEST(test_cal_never_and_base);
+    RUN_TEST(test_cal_legacy_migration);
     RUN_TEST(test_battery_low_needs_consecutive_readings);
     return UNITY_END();
 }

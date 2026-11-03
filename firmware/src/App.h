@@ -49,6 +49,8 @@ private:
 
     // Helpers
     void runSync(bool manual, uint32_t now);
+    bool startRun(uint32_t now, bool automatic);
+    RunInfo runFromSettings() const;
     void lowBatteryShutdown();
     void setMessage(const char* msg, uint32_t now, uint32_t duration_ms);
     void markDirty(bool full, uint32_t now);
@@ -94,6 +96,9 @@ private:
     PlotRange bins_range_ = PlotRange::H6;
     int bins_cols_ = 0;
     int64_t bins_t1_ = 0;
+
+    // Question in the bottom strip (new measurement, calibrate now)
+    Ask ask_ = Ask::None;
 
     // Calibration
     bool cal_manual_open_ = false;

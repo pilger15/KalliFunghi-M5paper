@@ -12,6 +12,9 @@
 
 namespace kf {
 
+// Written to run.txt in every run folder. Bump by hand on a release (date of the change).
+constexpr const char* kFirmwareVersion = "2026.11.03";
+
 // ---- Pins (M5Paper, checked against M5Unified 0.2.27 / M5GFX 0.2.34) ----
 constexpr int kPinMainPowerHold = 2;   // high keeps the board powered on battery
 constexpr int kPinExt5vEnable = 5;     // Grove 5 V boost (SCD41, VEML7700)

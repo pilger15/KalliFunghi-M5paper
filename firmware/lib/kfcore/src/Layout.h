@@ -1,4 +1,4 @@
-/* Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 // Screen geometry and hit-testing (960x540 landscape, sidebar on the right).
 // Pure, so drawing and touch handling use the same rectangles and tests can check them.
 #pragma once
@@ -32,6 +32,9 @@ enum class Target : uint8_t {
     CalConfirm,
     CalPostpone,
     CalCancel,
+    NewRun,       // Settings: New measurement
+    AskYes,       // bottom box question (new measurement, calibrate now)
+    AskNo,
 };
 
 struct Hit {
@@ -46,6 +49,7 @@ struct UiShape {
     bool box_buttons = false;  // strip shows the calibration buttons
     bool cal_manual = false;   // box opened by "Calibrate now": Cancel instead of Postpone
     bool cal_ready = false;    // Calibrated is active (not already calibrating)
+    bool ask = false;          // strip shows a Yes / No question instead
 };
 
 namespace layout {
@@ -61,7 +65,7 @@ Rect settingsButton();
 Rect calBox();
 Rect calConfirmButton();
 Rect calSecondButton();     // Postpone or Cancel
-Rect settingsRow(int row);  // label row, rows 0..4
+Rect settingsRow(int row);  // label row, rows 0..5
 Rect rangeButton(int i);
 Rect modeButton(int i);
 Rect autoSyncButton();
@@ -69,6 +73,7 @@ Rect offsetMinusButton();
 Rect offsetValue();
 Rect offsetPlusButton();
 Rect calibrateNowButton();
+Rect newRunButton();
 
 Hit hitTest(const UiShape& ui, int x, int y);
 // True if a single tap on this target does something (it then waits for the
