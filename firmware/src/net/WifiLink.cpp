@@ -97,6 +97,8 @@ int scan(NetInfo* out, int max, uint32_t timeout_ms, const std::function<void()>
         int r = WiFi.RSSI(i);
         e.rssi = (int8_t)(r < -127 ? -127 : (r > 0 ? 0 : r));
         e.security = securityOf(WiFi.encryptionType(i));
+        KF_TRACE("scan   '%s' %d dBm ch %d auth %d", e.ssid, (int)r, (int)WiFi.channel(i),
+                 (int)WiFi.encryptionType(i));
     }
     WiFi.scanDelete();
     return count;
