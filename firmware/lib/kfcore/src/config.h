@@ -99,6 +99,10 @@ constexpr uint64_t kSdMinFreeBytes = 1024ULL * 1024;
 
 // ---- Time and sync ----
 constexpr const char* kTimezone = "CET-1CEST,M3.5.0,M10.5.0/3";
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Wi-Fi hotspot sync (Sync button, auto-sync, its Settings row). Off: the clock is set
+// over Bluetooth only. The code stays and comes back with true.
+constexpr bool kWifiSync = false;
 // Hotspot defaults (kDefaultSsid, kDefaultPassword) come from secrets.h, which is
 // not in git. Without it the build uses secrets.example.h (placeholders) and the
 // hotspot must be set in /config.json on the SD card.
@@ -109,6 +113,26 @@ constexpr uint32_t kSyncAutoTimeoutMs = 10000;
 constexpr uint32_t kAutoSyncCheckMs = 24UL * 3600 * 1000;
 constexpr int64_t kAutoSyncAgeS = 7LL * 86400;
 constexpr int64_t kSyncWarnAgeS = 30LL * 86400;
+
+// ---- Bluetooth sync (BleProto.h, src/ble/BleSync) ----
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+constexpr const char* kBleName = "KalliFunghi";
+constexpr const char* kBleServiceUuid = "4b460000-6b61-6c6c-6966-756e67686900";
+constexpr const char* kBleStatusUuid = "4b460001-6b61-6c6c-6966-756e67686900";
+constexpr const char* kBleTimeUuid = "4b460002-6b61-6c6c-6966-756e67686900";
+constexpr const char* kBleLiveUuid = "4b460003-6b61-6c6c-6966-756e67686900";
+constexpr const char* kBleFilesUuid = "4b460004-6b61-6c6c-6966-756e67686900";
+constexpr const char* kBleControlUuid = "4b460005-6b61-6c6c-6966-756e67686900";
+// Advertising: always on USB; on battery a window of kBleWindowMs every kBlePeriodMs (the
+// radio blocks light sleep, ~30-40 mA while on). A connection holds the radio until the
+// disconnect or kBleIdleMs without page activity.
+constexpr uint32_t kBleWindowMs = 30UL * 1000;
+constexpr uint32_t kBlePeriodMs = 5UL * 60 * 1000;
+constexpr uint32_t kBleFirstWindowMs = 10UL * 1000;     // after boot (not after a brown-out)
+constexpr uint32_t kBleUsbRestartMs = 2000;             // on USB: gap before advertising again
+constexpr uint32_t kBleIdleMs = 10UL * 60 * 1000;       // connected, no page activity
+constexpr uint32_t kBleStallMs = 15000;                  // READ without an ACK: aborted
+constexpr int kBatteryBleMinMv = 3600;                   // no Bluetooth below this on battery
 
 // ---- Calibration reminder ----
 constexpr int64_t kCalIntervalS = 7LL * 86400;

@@ -1,0 +1,211 @@
+<!doctype html>
+<!-- Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KalliFunghi Sync</title>
+<meta name="description" content="Set the clock of a KalliFunghi logger and download and plot its logs over Bluetooth.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f4f4f2;
+  --surface-1: #fcfcfb;
+  --border: #dcdbd6;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7a7974;
+  --accent: #2a78d6;
+  --series-1: #2a78d6;
+  --grid: #e6e5e0;
+  --good: #1f7a3a;
+  --warning: #9a6200;
+  --critical: #c0392b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --border: #34342f;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e86;
+    --accent: #3987e5;
+    --series-1: #3987e5;
+    --grid: #2a2a27;
+    --good: #4cb36b;
+    --warning: #e0a63a;
+    --critical: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211;
+  --surface-1: #1a1a19;
+  --border: #34342f;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8f8e86;
+  --accent: #3987e5;
+  --series-1: #3987e5;
+  --grid: #2a2a27;
+  --good: #4cb36b;
+  --warning: #e0a63a;
+  --critical: #e66767;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px; }
+h1 { font-size: 20px; margin: 0; flex: 1 1 auto; }
+h2 { font-size: 16px; margin: 0 0 10px; }
+section {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+button, select {
+  font: inherit;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .45; cursor: default; }
+button.small { padding: 3px 10px; font-size: 13px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.muted { color: var(--text-muted); }
+.secondary { color: var(--text-secondary); }
+#banner { display: none; border-color: var(--warning); }
+#banner.show { display: block; }
+#log { font-size: 13px; color: var(--text-secondary); min-height: 1.4em; }
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px 18px;
+  margin-bottom: 12px;
+}
+.status-grid div span { display: block; font-size: 12px; color: var(--text-muted); }
+.status-grid div b { font-weight: 600; }
+.bad { color: var(--critical); }
+.warn { color: var(--warning); }
+.ok { color: var(--good); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; color: var(--text-secondary); font-size: 13px; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+tr.group td { background: var(--surface-0); font-weight: 600; padding-top: 10px; }
+.files-wrap { overflow-x: auto; }
+.charts { display: grid; grid-template-columns: 1fr; gap: 14px; }
+@media (min-width: 900px) { .charts { grid-template-columns: 1fr 1fr; } }
+.chart { min-width: 0; }
+.chart h3 { font-size: 14px; margin: 0 0 2px; font-weight: 600; }
+.chart .u-legend { font-size: 13px; color: var(--text-secondary); text-align: left; }
+.chart .u-legend .u-marker { display: none; }
+.range button.on { background: var(--text-primary); color: var(--surface-1); border-color: var(--text-primary); }
+.uplot, .uplot * { font-family: inherit; }
+.u-select { background: rgba(127, 127, 127, .18); }
+progress { width: 100%; height: 6px; }
+footer { font-size: 13px; color: var(--text-muted); padding: 4px 2px 24px; }
+footer ul { margin: 4px 0; padding-left: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>KalliFunghi Sync</h1>
+    <div class="row">
+      <button id="connect" class="primary">Connect</button>
+      <button id="disconnect" disabled>Disconnect</button>
+    </div>
+  </header>
+
+  <section id="banner">
+    <b>Bluetooth can't be used here.</b> <span id="banner-hint"></span>
+    Charts of logs already downloaded in this browser still work below.
+    <div class="muted" id="banner-detail" style="font-size: 12px; margin-top: 6px; word-break: break-all"></div>
+  </section>
+
+  <section>
+    <h2>Device</h2>
+    <p class="muted" id="hint">Press Connect. On USB power the device is always visible; on battery it shows up for 30 s every 5 minutes, so if KalliFunghi is not in the list, wait a moment and try again.</p>
+    <div class="status-grid" id="status"></div>
+    <div class="row">
+      <button id="sync" disabled>Sync time</button>
+      <label class="row secondary"><input type="checkbox" id="fast" disabled> Fast samples (5 s) while connected</label>
+    </div>
+    <p id="log"></p>
+  </section>
+
+  <section>
+    <div class="row" style="justify-content: space-between; margin-bottom: 10px">
+      <h2 style="margin: 0">Files</h2>
+      <div class="row">
+        <button id="refresh" disabled>Refresh list</button>
+        <button id="all" disabled>Download all new</button>
+        <button id="folder" hidden>Save to folder…</button>
+      </div>
+    </div>
+    <progress id="progress" value="0" max="1" hidden></progress>
+    <div class="files-wrap"><table id="files">
+      <thead><tr><th>File</th><th class="num">Size</th><th>In this browser</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <div class="row" style="justify-content: space-between; margin-bottom: 10px">
+      <h2 style="margin: 0">Charts</h2>
+      <div class="row">
+        <select id="run" aria-label="Measurement run"></select>
+        <button id="export">Export CSV</button>
+      </div>
+    </div>
+    <div class="row range" id="range" style="margin-bottom: 10px">
+      <button data-s="3600">1 h</button><button data-s="21600">6 h</button>
+      <button data-s="86400" class="on">24 h</button><button data-s="604800">7 d</button>
+      <button data-s="0">Whole run</button>
+      <span class="muted" style="font-size: 13px">Drag to zoom, double click to reset.</span>
+    </div>
+    <p class="muted" id="chart-note"></p>
+    <div class="charts" id="charts"></div>
+  </section>
+
+  <section>
+    <div class="row" style="justify-content: space-between">
+      <span class="secondary">Downloaded logs are kept in this browser (IndexedDB), so charts also work offline.</span>
+      <button id="clear">Clear cache</button>
+    </div>
+  </section>
+
+  <footer>
+    Browser support:
+    <ul>
+      <li>Chrome and Edge on Android, Windows, macOS and ChromeOS work.</li>
+      <li>Linux: Chrome with the flag <code>chrome://flags/#enable-experimental-web-platform-features</code>.</li>
+      <li>Firefox and Safari have no Web Bluetooth. On iPhone use a Web Bluetooth browser such as Bluefy.</li>
+    </ul>
+    Nothing leaves this browser: the page talks only to the device.
+  </footer>
+</main>
+<script src="vendor/uPlot.iife.min.js"></script>
+<script src="ble.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

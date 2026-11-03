@@ -7,8 +7,10 @@
 // (Display keeps GPIO23 high), so its MISO load is not an issue.
 #pragma once
 
+#include <functional>
 #include <stddef.h>
 #include <stdint.h>
+#include "BleProto.h"
 #include "ColumnBins.h"
 #include "RunLog.h"
 #include "SampleRing.h"
@@ -79,6 +81,15 @@ public:
     // Fills the ring with the last seconds of synced rows (after a reboot).
     void loadRing(SampleRing& ring, int64_t now_utc, uint32_t seconds);
 
+    // BLE download (BleProto paths, relative to /log). Free space as of the last flush.
+    /* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+    uint64_t freeBytes() const { return free_; }
+    // Calls fn for error.log, sync.csv and every file in a run folder. false: no card.
+    bool listFiles(const std::function<void(const char* rel, uint32_t size)>& fn);
+    // Reads up to len bytes at offset and sets size to the file size. Returns the bytes
+    // read (0 at or past the end), -1 for a card error, -2 if the file does not exist.
+    int readChunk(const char* rel, uint32_t offset, uint8_t* buf, size_t len, uint32_t& size);
+
 private:
     static constexpr size_t kCapacity = kLogBufferRows;
     bool writeRows(const char* path, size_t first, size_t n);
@@ -100,6 +111,7 @@ private:
     size_t count_ = 0;
     bool mounted_ = false;
     bool full_ = false;
+    uint64_t free_ = 0;
     bool write_failed_ = false;
     uint32_t dropped_ = 0;
     uint32_t dropped_reported_ = 0;

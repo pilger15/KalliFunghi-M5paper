@@ -11,13 +11,12 @@ KalliFunghi logs CO2, temperature, humidity and light in your grow box, shows th
 
 1. Insert the SD card and plug the sensor cable into **Port A**.
 2. Switch the device on: press the side button for about 2 s. The screen flashes black and white a few times, then shows the home screen.
-3. Turn on your phone's internet hotspot with the hotspot name and password set up for this device.
-4. Tap **Sync** in the sidebar. The clock is set when the bottom of the screen shows "Sync ok".
-5. Place the device in the grow box, away from lamps and heaters. The first values appear after about a minute.
+3. Set the clock: open the KalliFunghi Sync page on your phone or PC, press **Connect** and then **Sync time** (see "Syncing the clock"). The clock is set when the page and the device show "Time set".
+4. Place the device in the grow box, away from lamps and heaters. The first values appear after about a minute.
 
 ## The screen
 
-Four plots on the left (CO2, temperature, humidity, light), the sidebar with status and the **Sync** and **Settings** buttons on the right. The online version of this guide shows a picture of the layout.
+Four plots on the left (CO2, temperature, humidity, light), the sidebar with status and the **Settings** button on the right. The online version of this guide shows a picture of the layout.
 
 The home screen shows the last 6 h of each value (change the range in Settings): the current value large, plus the lowest and highest value in that time. The sidebar always shows the time and date, battery, mode and how long ago the clock was synced. On the home screen it also shows how long ago the CO2 sensor was calibrated ("CO2 cal 12d", or "never") and the current measurement with its day ("Run 4, day 12"). Marks appear there only when something needs attention (see Troubleshooting).
 
@@ -28,7 +27,6 @@ The home screen shows the last 6 h of each value (change the range in Settings):
 | Any touch | The screen updates more often for 5 min. Each further touch restarts the 5 min. |
 | Tap a plot | Shows that plot full screen. |
 | Double tap anywhere | Back to the home screen, from any page. |
-| Tap **Sync** | Connects to the phone hotspot and sets the clock. |
 | Tap **Settings** | Opens the settings; tap it again to leave. |
 
 Buttons react after about half a second: the device first waits to see whether a second tap follows. E-ink needs another moment to redraw, so wait for the screen to change before tapping again.
@@ -50,23 +48,32 @@ On USB power the device switches to full speed by itself and shows a plug symbol
 
 ## Syncing the clock
 
-Sync about once a month; the clock drifts roughly 1 min per month. Summer and winter time switch automatically.
+Sync about once a month; the clock drifts roughly 1 min per month. Summer and winter time switch automatically. The clock is set over Bluetooth with the KalliFunghi Sync page; no internet and no password are needed, and the same page downloads and plots the data.
 
-1. Turn on your phone's internet hotspot with the hotspot name and password set up for this device. The device only uses 2.4 GHz: on an iPhone, turn on "Maximize Compatibility".
-2. Hold the phone within a few meters of the device.
-3. Tap **Sync**. It takes up to 20 s.
-4. The bottom of the screen shows "Sync ok" and how many seconds the clock was corrected, or why it failed.
-5. Turn the hotspot off again.
+**When the device can be found:** on USB power always. On battery it shows up for 30 s every 5 minutes (this saves battery), so after pressing Connect it can take up to 5 min until "KalliFunghi" appears in the list. Nothing needs to be tapped on the device.
 
-**Auto-sync:** once a day, if the last sync is older than 7 days, the device quietly looks for the hotspot for 10 s. Leaving the hotspot on near the device is enough.
+1. Open the **KalliFunghi Sync** page (see "Opening the page") and press **Connect**. Choose "KalliFunghi" in the browser's list. If it is not listed, close the list and try again a little later.
+2. The page shows the device time and how far it is off from your phone or PC. Press **Sync time**. Both show "Time set" with the correction.
+3. Optional: download the data (see "Data and battery") and look at the charts.
+4. Press **Disconnect** or close the page. **Stop** on the device ends the connection at once.
 
-"! Clock" in the sidebar means the clock was never synced or the last sync is older than 30 days. Readings taken before the first sync are still saved, in a separate file.
+While a page is connected, the bottom of the device's screen says so; the device stays awake and new readings appear live in the charts. After 10 min without using the page it disconnects. "Fast samples while connected" switches to 5 s readings until you disconnect.
 
-**Using a different hotspot:** put a file named `config.json` in the top folder of the SD card with your hotspot's name and password, then restart the device:
+Only one phone or PC can be connected at a time. There is no pairing: anyone nearby with the page can connect while the device is visible.
 
-```json
-{ "wifi": { "ssid": "your-hotspot", "password": "your-password" } }
-```
+"! Clock" in the sidebar means the clock was never synced or the last sync is older than 30 days. Readings taken before the first sync are still saved, in a separate file, and shown in the right place once the clock is set.
+
+The Wi-Fi hotspot sync of earlier firmware is switched off in this version.
+
+### Opening the page
+
+Choose one of three ways. The page needs Chrome or Edge (see "Browsers").
+
+1. **Installed app (recommended for phones):** open https://pilger15.github.io/KalliFunghi-M5paper/ once while online, then choose "Install app" or "Add to home screen" in the browser menu. After that it works without internet and updates itself the next time you are online.
+2. **Local copy, no internet at all:** copy the file `KalliFunghi.html` (from the `web` folder) to the phone or PC, for example as an email attachment, and open it in Chrome or Edge. Downloaded data is stored per place you open it from: opening the file from a different folder or app starts with an empty data list.
+3. **On the PC:** double-click `start-local.cmd` in the `web` folder. It opens the page at http://localhost:8765 in the browser. Keep the window open while you use the page.
+
+**Browsers:** Chrome and Edge on Android, Windows, macOS and ChromeOS. On Linux only Chrome with the experimental web platform features flag. Firefox and Safari do not support Bluetooth pages; on an iPhone use a Bluetooth browser such as Bluefy. A page opened inside another app (an email or chat preview) usually has no Bluetooth: use "Open in Chrome". If Bluetooth is missing, the page says why at the top.
 
 ## Settings
 
@@ -76,7 +83,6 @@ Tap **Settings** in the sidebar; tap it again or double tap to leave. Settings a
 | --- | --- | --- |
 | Plot range | 1 h, 6 h, 24 h, 7 d | 6 h |
 | Sampling mode | Ultra-Eco, Eco, Fast | Eco |
-| Auto-sync | On, Off | On |
 | Temperature offset | 0 to 10 °C in 0.5 steps | 0 °C |
 | CO2 calibration | Calibrate CO2 now | — |
 | Measurement | New measurement | — |
@@ -109,7 +115,11 @@ You can also calibrate at any time with **Calibrate CO2 now** in Settings: same 
 
 An empty field means that sensor was not connected at that moment.
 
-To copy the data, switch the device off first, then take out the SD card. Readings are written every 5 min, so the last few minutes before switching off may be missing.
+**Download over Bluetooth:** connect the KalliFunghi Sync page (see "Syncing the clock"). The file list shows each measurement with its day files, plus `error.log` and `sync.csv`. **Download** saves one file, **Download all new** fetches every file that is new or has grown since the last download in this browser; only the new part is transferred, and an interrupted download continues where it stopped. Files land in the browser's normal Downloads folder, named after the measurement and the file, for example `m004_2026-11-03_2026-11-05.csv`. On a PC you can choose a folder once (**Save to folder…**); the files then go into one subfolder per measurement. A day of Eco data is about 150 KB.
+
+The page keeps the downloaded data in the browser, so the **Charts** (CO2, temperature, humidity, light per measurement, with 1 h to whole-run ranges, zoom and values on hover) also work later without the device and without internet. **Export CSV** saves a whole measurement as one file. **Clear cache** deletes the copy in the browser, not the files on the device.
+
+**Copy from the SD card:** switch the device off first, then take out the SD card. Readings are written every 5 min, so the last few minutes before switching off may be missing.
 
 **Battery:** charge with any USB-C charger. When the battery is nearly empty, the device saves its data, shows "Battery low" with the time of the last update and switches off. Charge it, then press the side button to start again.
 
@@ -117,9 +127,9 @@ To copy the data, switch the device off first, then take out the SD card. Readin
 
 | Symptom | What to do |
 | --- | --- |
-| "Hotspot not found" | Check that the hotspot is on, uses exactly the name set up for the device, and runs on 2.4 GHz ("Maximize Compatibility" on iPhone). Hold the phone closer. |
-| "Wrong password" | Check the hotspot password set up for the device. |
-| "NTP timeout" | The hotspot has no internet. Check mobile data on the phone. |
+| KalliFunghi not in the page's device list | On battery the device is visible 30 s every 5 min: try again within 5 min, or plug in USB. Turn on Bluetooth on the phone or PC; on Android, location may need to be on for Bluetooth scanning. Below about 3.6 V the device stays invisible: charge it. |
+| Page says "Bluetooth can't be used here" | Follow the reason shown there; usually: use Chrome or Edge, open the page in Chrome instead of an app preview, or use the https address or `localhost` (see "Opening the page"). |
+| Charts empty after opening the page another way | The downloaded data belongs to the address or file location it was downloaded in. Use the same way each time, or download again. |
 | "! Clock" in the sidebar | Sync the clock. |
 | "no sensor" in a plot | Check the cable in Port A, then switch the device off and on. |
 | "! SD" in the sidebar | SD card missing, full or damaged. The device keeps measuring and saves again once a working card is in. |

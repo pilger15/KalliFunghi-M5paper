@@ -1,0 +1,43 @@
+# Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None
+#
+# Publishes the Web Bluetooth page (web/) to GitHub Pages on every push to main that
+# changes it. One-time setup: repository Settings > Pages > Source: "GitHub Actions".
+# The page contains no secrets (secrets.h stays in firmware/ and is git-ignored).
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the single-file copy is current
+        run: python3 web/make_single.py --check
+      - name: Collect the page (no build scripts)
+        run: |
+          mkdir -p _site
+          cp -r web/. _site/
+          rm -f _site/*.py _site/*.cmd
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

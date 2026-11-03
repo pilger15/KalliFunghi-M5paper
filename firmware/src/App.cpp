@@ -9,6 +9,7 @@
 #include <new>
 #include <stdio.h>
 #include <string.h>
+#include "BleProto.h"
 #include "CsvFormat.h"
 #include "config.h"
 #include "hw/Board.h"
@@ -175,6 +176,9 @@ void App::setup()
     next_refresh_ms_ = now;
     last_flush_ms_ = now;
     next_autosync_ms_ = now + kAutoSyncFirstMs;
+    // First Bluetooth window soon after boot, but not right after a brown-out: radio start
+    // peaks on a weak cell would otherwise make a reset loop.
+    next_ble_ms_ = now + (esp_reset_reason() == ESP_RST_BROWNOUT ? kBlePeriodMs : kBleFirstWindowMs);
     markDirty(true, now);
     KF_TRACE("boot ok, utc %lld, valid %d, scd %d, veml %d, sd %d", (long long)rtc_utc_,
              (int)clockValid(), (int)scd_.present(), (int)light_.present(), (int)sd_.mounted());
@@ -188,11 +192,16 @@ void App::loop()
 
     // Fixed load point: radio off, EPD in standby or off, before any work.
     int mv = M5.Power.getBatteryVoltage();
-    bool usb = usb_.update(now, mv);
+    // With the radio on battery the voltage sags and ticks are milliseconds apart: no USB
+    // guess and no low-battery count from it (Bluetooth stops on a low reading). On USB
+    // the heuristic keeps running, so an unplug ends the always-on advertising.
+    bool radio_on_batt = ble_.on() && !psm_.usb();
+    bool usb = radio_on_batt ? false : usb_.update(now, mv);
 #ifdef KF_FORCE_BATTERY
     usb = false;   // bench: battery behaviour (idle, panel off) while powered over USB
 #endif
-    if (battery_.feed(mv, usb)) { lowBatteryShutdown(); }
+    if (!radio_on_batt && battery_.feed(mv, usb)) { lowBatteryShutdown(); }
+    if (radio_on_batt && mv < kBatteryLowMv) { stopBle("Bluetooth off: battery low", now); }
 
     rtc_utc_ = clock_.readRtc();
     rtc_ms_ = millis();
@@ -212,6 +221,7 @@ void App::loop()
     }
 
     handleTouch(now);
+    bleTick(now);
     applySensorMode(now);
     sample(now);
     calibration(now);
@@ -265,8 +275,8 @@ void App::act(const Hit& h, uint32_t now)
         plot_ = h.index;
         markDirty(true, now);
         break;
-    case Target::Sync:
-        runSync(true, now);
+    case Target::Sync:   // only with kWifiSync
+        if (!ble_.on()) { runSync(true, now); }
         break;
     case Target::Settings:
         view_ = (view_ == View::Settings) ? View::Home : View::Settings;
@@ -361,7 +371,8 @@ void App::act(const Hit& h, uint32_t now)
         markDirty(false, now);
         break;
     case Target::AskNo:
-        ask_ = Ask::None;
+        if (ask_ == Ask::Ble) { stopBle("Bluetooth off", now); }
+        else { ask_ = Ask::None; }
         markDirty(false, now);
         break;
     default:
@@ -397,11 +408,11 @@ uint32_t App::sampleIntervalMs() const
     }
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
-// Light sleep is not allowed while Wi-Fi is up (sync); plain delay then.
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Light sleep is not allowed while Wi-Fi or Bluetooth is up; plain delay then.
 void App::napOrDelay(uint32_t ms)
 {
-    if (in_sync_) { delay(ms); }
+    if (in_sync_ || ble_.on()) { delay(ms); }
     else { board::nap(ms); }
 }
 
@@ -519,6 +530,7 @@ void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, 
     }
     ring_->push(s);
     sd_.queue(s);
+    ble_.notifyLive(s);
     latest_ = s;
     have_latest_ = true;
     ++samples_;
@@ -565,7 +577,7 @@ void App::autoSync(uint32_t now)
 {
     if (diff(now, next_autosync_ms_) < 0) { return; }
     next_autosync_ms_ = now + kAutoSyncCheckMs;
-    if (!settings_.auto_sync) { return; }
+    if (!kWifiSync || !settings_.auto_sync || ble_.on()) { return; }
     if (sync_reset_ && !psm_.usb()) { return; }
     int64_t age = settings_.last_sync_utc ? utcNow() - settings_.last_sync_utc : INT64_MAX;
     if (age < kAutoSyncAgeS) { return; }
@@ -610,25 +622,7 @@ void App::runSync(bool manual, uint32_t now)
 
     char msg[64];
     if (res.code == SyncResult::Ok) {
-        rtc_utc_ = res.utc;
-        rtc_ms_ = now;
-        if (!was_valid) {
-            // Data and timers recorded on the unsynced clock move to the real time line.
-            ring_->rebaseUnsynced(res.correction_s);
-            settings_.cal.rebase(res.correction_s);
-            // A run started on the unsynced clock: its start moves too. The folder name
-            // (m001_unsynced) stays; run.txt notes the shift for unsynced.csv.
-            if (strstr(settings_.run_dir, "unsynced")) { settings_.run_start_utc += res.correction_s; }
-            if (settings_.run_no > 0) {
-                char iso[24];
-                formatIsoUtc(res.utc, iso, sizeof(iso));
-                sd_.runInfo("clock_synced=%s,%+lld", iso, (long long)res.correction_s);
-            }
-            bins_cached_ = false;
-        }
-        settings_.last_sync_utc = res.utc;
-        settings_.save();
-        sd_.logSync(res.utc, res.correction_s);
+        applySync(res.utc, res.correction_s, was_valid, now);
         snprintf(msg, sizeof(msg), "Sync ok, clock corrected by %+lld s", (long long)res.correction_s);
     } else {
         snprintf(msg, sizeof(msg), "Sync failed: %s", syncResultText(res.code));
@@ -636,6 +630,169 @@ void App::runSync(bool manual, uint32_t now)
     if (manual || res.code == SyncResult::Ok) { setMessage(msg, now, kMessageMs); }
     else { message_[0] = '\0'; }
     markDirty(false, now);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Bookkeeping of a successful clock sync (Wi-Fi or Bluetooth); the RTC is already set.
+// Also rebases the calibration and run start after the first sync.
+void App::applySync(int64_t utc, int64_t correction_s, bool was_valid, uint32_t now)
+{
+    rtc_utc_ = utc;
+    rtc_ms_ = now;
+    if (!was_valid) {
+        // Data and timers recorded on the unsynced clock move to the real time line.
+        ring_->rebaseUnsynced(correction_s);
+        settings_.cal.rebase(correction_s);
+        // A run started on the unsynced clock: its start moves too. The folder name
+        // (m001_unsynced) stays; run.txt notes the shift for unsynced.csv.
+        if (strstr(settings_.run_dir, "unsynced")) { settings_.run_start_utc += correction_s; }
+        if (settings_.run_no > 0) {
+            char iso[24];
+            formatIsoUtc(utc, iso, sizeof(iso));
+            sd_.runInfo("clock_synced=%s,%+lld", iso, (long long)correction_s);
+        }
+        bins_cached_ = false;
+    }
+    settings_.last_sync_utc = utc;
+    settings_.save();
+    sd_.logSync(utc, correction_s);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// One advertising window: unlimited on USB, kBleWindowMs on battery. Silent: no
+// screen, SD or NVS activity per window (that would be every 5 min).
+bool App::startBle(uint32_t now)
+{
+    usb_window_ = psm_.usb();
+    if (!ble_.start(now, usb_window_ ? 0 : kBleWindowMs)) {
+        if (!ble_failed_reported_) { sd_.event("bluetooth start failed, heap %u", (unsigned)ESP.getFreeHeap()); }
+        ble_failed_reported_ = true;
+        return false;
+    }
+    ble_failed_reported_ = false;
+    return true;
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Ends the session and plans the next window. Only a session with a page connected
+// leaves a message and an error.log line.
+void App::stopBle(const char* why, uint32_t now)
+{
+    if (!ble_.on()) { return; }
+    bool had = ble_.hadConnection();
+    uint32_t rate = ble_.lastRate();
+    ble_.stop();
+    if (ble_fast_) {
+        ble_fast_ = false;
+        psm_.setUserMode(settings_.mode);
+    }
+    // On USB advertise again right away; on battery the period counts from the last start.
+    if (psm_.usb()) { next_ble_ms_ = now + kBleUsbRestartMs; }
+    if (ask_ == Ask::Ble) { ask_ = Ask::None; }
+    if (had) {
+        sd_.event("bluetooth session end: %s, last transfer %lu B/s", why, (unsigned long)rate);
+        // The result of the session stays readable in the strip.
+        setMessage(ble_note_[0] ? ble_note_ : why, now, kMessageMs);
+    }
+    ble_note_[0] = '\0';
+}
+
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+void App::bleTick(uint32_t now)
+{
+    if (!ble_.on()) {
+        if (diff(now, next_ble_ms_) < 0) { return; }
+        next_ble_ms_ = now + kBlePeriodMs;
+        if (!psm_.usb() && battery_.mv() < kBatteryBleMinMv) { return; }   // lower peaks than Wi-Fi
+        startBle(now);
+        return;
+    }
+    // USB went away while advertising without a limit: back to battery windows.
+    if (usb_window_ && !psm_.usb() && !ble_.connected()) {
+        stopBle("usb gone", now);
+        next_ble_ms_ = now + kBlePeriodMs;
+        return;
+    }
+    if (ble_.connected()) {
+        psm_.onTouch(now);   // a connected page counts as interactive
+        if (ask_ == Ask::None) {
+            ask_ = Ask::Ble;
+            message_[0] = '\0';
+            sd_.event("bluetooth: page connected");
+            markDirty(false, now);
+        }
+    }
+    ble_.setStatus(bleStatus(), rtc_utc_, rtc_ms_);
+    ble_.tick(now, sd_);
+
+    int64_t utc_ms;
+    uint32_t rx_ms;
+    if (ble_.takeTime(utc_ms, rx_ms)) { applyBleTime(utc_ms, rx_ms); }
+
+    bool fast = ble_.fastWanted() && !calibrating_;
+    if (fast != ble_fast_) {
+        ble_fast_ = fast;
+        psm_.setUserMode(fast ? SamplingMode::Fast : settings_.mode);
+        sd_.event("bluetooth: fast sampling %s", fast ? "on" : "off");
+    }
+    // Plain advertising windows never redraw the screen.
+    if (ble_.takeChanged() && ask_ == Ask::Ble) { markDirty(false, now); }
+
+    switch (ble_.ended()) {
+    case BleSync::End::Timeout: stopBle("no connection", now); break;
+    case BleSync::End::Disconnected: stopBle("Bluetooth off: disconnected", now); break;
+    case BleSync::End::Idle: stopBle("Bluetooth off: page idle 10 min", now); break;
+    case BleSync::End::ByPage: stopBle("Bluetooth off: closed by the page", now); break;
+    case BleSync::End::Failed: stopBle("Bluetooth off: error", now); break;
+    default: break;
+    }
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// The BM8563 counts whole seconds: wait for the next full second of the page's time,
+// then write it, so the error stays well below a second.
+void App::applyBleTime(int64_t utc_ms, uint32_t rx_ms)
+{
+    if (calibrating_) {
+        snprintf(ble_note_, sizeof(ble_note_), "Time not set: calibrating");
+        return;
+    }
+    int64_t page_ms = utc_ms + (int64_t)(millis() - rx_ms);
+    uint32_t wait = (uint32_t)((1000 - (page_ms % 1000 + 1000) % 1000) % 1000);
+    delay(wait);
+    int64_t utc = (page_ms + wait) / 1000;
+    bool was_valid = clockValid();
+    int64_t correction = utc - utcNow();
+    clock_.setUtc(utc);
+    uint32_t now = millis();
+    applySync(utc, correction, was_valid, now);
+    sd_.event("bluetooth time sync, correction %+lld s", (long long)correction);
+    snprintf(ble_note_, sizeof(ble_note_), "Time set, clock corrected by %+lld s", (long long)correction);
+    KF_TRACE("ble: time set, correction %lld s", (long long)correction);
+    markDirty(false, now);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+bleproto::StatusInfo App::bleStatus() const
+{
+    bleproto::StatusInfo s;
+    s.fw = kFirmwareVersion;
+    s.clock_valid = clockValid();
+    s.last_sync = settings_.last_sync_utc;
+    s.bat_pct = battery_.percent();
+    s.bat_mv = battery_.mv();
+    s.usb = psm_.usb();
+    s.mode = settings_.mode;
+    s.eff_mode = scd_.mode();
+    s.sd = !sd_.mounted() ? "missing" : sd_.full() ? "full" : sd_.problem() ? "error" : "ok";
+    s.free_kb = (uint32_t)(sd_.freeBytes() / 1024);
+    s.run_no = settings_.run_no;
+    s.run_dir = settings_.run_dir;
+    s.run_start = settings_.run_start_utc;
+    s.last_cal = settings_.cal.last_cal_utc;
+    s.window_s = ble_.windowLeftS(millis());
+    s.live_fast = ble_fast_;
+    return s;
 }
 
 /* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
@@ -806,6 +963,17 @@ void App::buildModel(UiModel& m, uint32_t now)
         m.cal_countdown_s = (warm >= kScdFrcWarmupMs) ? 0 : (int)((kScdFrcWarmupMs - warm + 999) / 1000);
     }
     strncpy(m.message, message_, sizeof(m.message) - 1);
+    switch (ble_.state()) {
+    case BleSync::State::Advertising: m.ble = BleUi::Advertising; break;
+    case BleSync::State::Connected: m.ble = BleUi::Connected; break;
+    case BleSync::State::Sending: m.ble = BleUi::Sending; break;
+    default: m.ble = BleUi::Off; break;
+    }
+    if (m.ble == BleUi::Sending) {
+        snprintf(m.ble_file, sizeof(m.ble_file), "%s", ble_.fileName());
+        m.ble_pct = ble_.filePercent() / 10 * 10;   // 10 % steps: fewer redraws
+    }
+    snprintf(m.ble_note, sizeof(m.ble_note), "%s", ble_note_);
     m.auto_sync = settings_.auto_sync;
     m.temp_offset = settings_.temp_offset;
     m.last_cal_utc = settings_.cal.last_cal_utc;
@@ -861,9 +1029,11 @@ void App::flush(uint32_t now, bool force)
     if (sd_.queued() == 0 && sd_.pendingEvents() == 0) { return; }
     // After a failed write, retry sooner so a re-inserted card is picked up quickly.
     uint32_t interval = sd_.problem() ? kSdRetryMs : kSdFlushMs;
-    bool due = force || diff(now, last_flush_ms_) >= (int32_t)interval || sd_.bufferNearlyFull()
-               || sd_.eventsNearlyFull();
-    if (!due) { return; }
+    bool nearly_full = sd_.bufferNearlyFull() || sd_.eventsNearlyFull();
+    bool due = force || diff(now, last_flush_ms_) >= (int32_t)interval || nearly_full;
+    // A Bluetooth download holds routine writes back (rows stay queued in RAM), so the
+    // file being read does not change under the transfer; they are written after it.
+    if (!due || (!force && !nearly_full && ble_.transferring())) { return; }
     if (settings_.run_no == 0) { startRun(now, true); }   // first boot had no usable card
     bool ok = sd_.flush();
     KF_TRACE("flush %d, %u rows left, problem %d", (int)ok, (unsigned)sd_.queued(), (int)sd_.problem());
@@ -892,7 +1062,7 @@ void App::lowBatteryShutdown()
     board::powerOff();
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::sleep(uint32_t now)
 {
     // Stay awake while a finger is down or a double-tap window is open: M5Unified's
@@ -903,6 +1073,12 @@ void App::sleep(uint32_t now)
     }
     if (touching || taps_.windowOpen()) {
         delay(10);
+        return;
+    }
+    // Bluetooth: no light sleep (the controller has no sleep clock configured, the link
+    // would drop). Short polls while a transfer runs, slower ones otherwise.
+    if (ble_.on()) {
+        delay(ble_.transferring() ? 1 : 20);
         return;
     }
 

@@ -3,8 +3,9 @@
 //
 // One tick per wake:
 //   battery at the fixed load point -> USB -> low battery -> RTC -> state machine
-//   -> touch -> sensor mode -> sampling -> calibration -> auto-sync -> display
-//   -> SD flush -> light sleep until the next deadline.
+//   -> touch -> Bluetooth -> sensor mode -> sampling -> calibration -> auto-sync
+//   -> display -> SD flush -> light sleep until the next deadline (no light sleep
+//   while Bluetooth is on: it would drop the link).
 // All deadlines are millis() (esp_timer based, keeps running in light sleep).
 // The RTC is only used for timestamps.
 #pragma once
@@ -17,6 +18,7 @@
 #include "SampleRing.h"
 #include "TapClassifier.h"
 #include "Types.h"
+#include "ble/BleSync.h"
 #include "power/UsbDetect.h"
 #include "sensors/LightSensor.h"
 #include "sensors/Scd41Sensor.h"
@@ -49,6 +51,12 @@ private:
 
     // Helpers
     void runSync(bool manual, uint32_t now);
+    void applySync(int64_t utc, int64_t correction_s, bool was_valid, uint32_t now);
+    bool startBle(uint32_t now);
+    void stopBle(const char* why, uint32_t now);
+    void bleTick(uint32_t now);
+    void applyBleTime(int64_t utc_ms, uint32_t rx_ms);
+    bleproto::StatusInfo bleStatus() const;
     bool startRun(uint32_t now, bool automatic);
     RunInfo runFromSettings() const;
     void lowBatteryShutdown();
@@ -126,6 +134,14 @@ private:
     uint32_t next_autosync_ms_ = 0;
     bool in_sync_ = false;
     bool sync_reset_ = false;   // last run was reset during Wi-Fi: no auto-sync on battery this run
+
+    // Bluetooth sync
+    BleSync ble_;
+    bool ble_fast_ = false;     // page asked for Fast sampling while connected
+    uint32_t next_ble_ms_ = 0;  // start of the next advertising window
+    bool usb_window_ = false;   // the current window has no limit (started on USB)
+    bool ble_failed_reported_ = false;
+    char ble_note_[48] = "";    // last result in the Bluetooth box ("Time set, ...")
 
     // Debug counters
     uint32_t wakes_ = 0;

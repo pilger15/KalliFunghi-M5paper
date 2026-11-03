@@ -41,8 +41,8 @@ pio test -e native
   - age of the last sync
   - Home view only: age of the last CO2 calibration (`CO2 cal 12d`, `<1d` or `never`) and the run (`Run 4, day 12`; day 1 is the start date, local time)
   - marks: `! Clock` (never synced, or last sync more than 30 days ago), plug icon (USB power), `! SD` (card missing, full or failing), `Cal due`
-  - buttons **Sync** and **Settings**
-- **Settings:** plot range (1 h, 6 h, 24 h, 7 d), sampling mode, auto-sync on/off, SCD41 temperature offset (0 to 10 degC in 0.5 steps), **Calibrate CO2 now** (with the date of the last calibration), **New measurement** (with the current run and its start date).
+  - button **Settings** (and **Sync** only with `kWifiSync`)
+- **Settings:** plot range (1 h, 6 h, 24 h, 7 d), sampling mode, auto-sync on/off (only with `kWifiSync`), SCD41 temperature offset (0 to 10 degC in 0.5 steps), **Calibrate CO2 now** (with the date of the last calibration), **New measurement** (with the current run and its start date).
 - **Interactive mode:** any touch starts it for 5 min; every touch restarts the timer.
 
 ### Tap vs double tap
@@ -79,6 +79,10 @@ Every start also runs 2 black/white cycles (`kBootCleanCycles`). For stubborn ma
 
 ## Sync
 
+The clock is set over Bluetooth from the web page (see "Bluetooth sync"). The Wi-Fi hotspot sync below is compiled out for now: `kWifiSync = false` in `config.h` hides the **Sync** button, the Auto-sync row in Settings and skips auto-sync. The code still builds; `true` brings it back.
+
+### Hotspot (with `kWifiSync`)
+
 - **Sync** connects to the phone hotspot, gets NTP time (`pool.ntp.org`, fallback `ptbtime1.ptb.de`), writes the BM8563 (UTC), then turns Wi-Fi off. The timeout is 20 s.
 - The result is shown at the bottom: the correction in seconds, or "Hotspot not found", "Wrong password", "NTP timeout" or "Wi-Fi connect failed".
 - **Auto-sync** (default on): 5 min after boot and then once a day, if the last sync is more than 7 days old, it tries silently for 10 s.
@@ -96,6 +100,71 @@ Optional, in the SD card root. It overrides the compiled-in hotspot:
   }
 }
 ```
+
+## Bluetooth sync
+
+Clock sync, status, live samples and SD download for the static Web Bluetooth page in `web/` (repo root). NimBLE-Arduino 2.5.1, peripheral only. Code: `src/ble/BleSync` (radio, transfer pump), `lib/kfcore/src/BleProto` (byte formats, unit tested).
+
+### Session
+
+- **Advertising** as `KalliFunghi` (service UUID in the advertisement, name in the scan response), no tap needed:
+  - **USB power:** always (restarted 2 s after a session ends). When USB goes away, the unlimited window ends unless a page is connected.
+  - **Battery:** a window of 30 s every 5 min (`kBleWindowMs`, `kBlePeriodMs`), from 3.60 V up (`kBatteryBleMinMv`). The first window opens 10 s after boot, after a brown-out reset only after one full period (no reset loop on a weak cell).
+  - A window without a connection is silent: no redraw, no SD or NVS write. Each window is one `NimBLEDevice::init` / `deinit(true)` (controller off and stack RAM freed in between, so the chip can light-sleep).
+- **Connected:** the radio stays on until the disconnect, 10 min without page activity (keepalive), the page's "end", **Stop** on the device, or below 3.55 V on battery. A connected page counts as interactive (`psm_.onTouch`); the bottom strip shows "connected", the file being sent and the last result, with **Stop**. Connect, time sync and session end go to `error.log`. One connection at a time.
+- **Power:** no light sleep while Bluetooth is on: the prebuilt controller uses the main crystal as its sleep clock (`CONFIG_BTDM_CTRL_LPCLK_SEL_MAIN_XTAL`), so light sleep would stop it (derived from the sdkconfig, not measured). The loop polls with `delay()` (1 ms while sending, 20 ms otherwise). On battery the low-battery count and the USB heuristic pause while the radio is on (the voltage sags under load). Cost estimate: 30 s at ~35 mA every 5 min is about +3 mA average, not measured.
+- **Security:** no pairing or bonding (decided): anyone in range can connect during a window, set the clock and download the logs. The data are not secret; one connection at a time.
+- **Fast while connected:** off by default; the page's checkbox switches the effective mode to Fast (not saved, not during a calibration) and back at the end.
+
+### GATT
+
+Service `4b460000-6b61-6c6c-6966-756e67686900`. Integers little endian.
+
+| UUID | Name | Properties | Content |
+|---|---|---|---|
+| `4b460001-6b61-6c6c-6966-756e67686900` | Status | read | JSON: `fw, utc_ms, clock_valid, last_sync, bat_pct, bat_mv, usb, mode, eff_mode, sd (ok/missing/full/error), free_kb, run_no, run_dir, run_start, last_cal, window_s, live_fast`. Booleans are 0/1, times UTC seconds (0 = never), `utc_ms` is computed at the read. |
+| `4b460002-...` | Time | write | int64 UTC ms. The device waits for the next full second, writes the BM8563 and records the sync like the Wi-Fi sync (`last_sync_utc`, `sync.csv`, `run.txt clock_synced=` on the first sync, rebase of unsynced data, message "Sync ok, clock corrected by N s"). Resolution: the RTC counts whole seconds, so expect up to about 1 s. |
+| `4b460003-...` | Live | notify | 16 B per new sample: `utc u32, co2 u16, temp_c100 i16, rh_c100 u16, lux f32, mode u8 (0 ultra, 1 eco, 2 fast), flags u8 (1 unsynced, 2 SCD41 valid, 4 lux valid)` |
+| `4b460004-...` | Files | write, notify | Request / answer protocol below |
+| `4b460005-...` | Control | write without response | `01` keepalive, `02 on` Fast while connected, `03` end the session |
+
+### Files protocol
+
+| Request | Answer notifications |
+|---|---|
+| `01` LIST | `81 seq:u16 "path,size\n"...` (packed up to the MTU), then `82 count:u16 crc32:u32` (CRC over all line bytes) |
+| `02 offset:u32 path` READ | `83 offset:u32 data...`, then `84 status:u8 size:u32 crc32:u32` |
+| `03 offset:u32` ACK | (flow control) |
+| `04` ABORT | `84` with status aborted |
+| bad request | `8F status:u8` |
+
+- **Order:** the page sends one GATT operation at a time (Chrome rejects overlapping ones, e.g. the 5 s status poll during a READ write).
+- **Paths** are relative to `/log`: `error.log`, `sync.csv` and `<run folder>/<file>` (all files of every run folder). Anything else is refused (bad path). Old flat files are not listed.
+- **Status:** 0 ok, 1 bad request, 2 bad path, 3 not found, 4 busy, 5 SD error, 6 aborted.
+- **CRC-32** (IEEE, as zlib) of the bytes `[offset, size)` sent by this READ; for offset 0 that is the file's CRC.
+- **Flow control:** at most 8 KB beyond the last ACK in flight; the page ACKs every 4 KB. Without an ACK for 15 s the READ is aborted. Notifications that find NimBLE out of buffers are retried.
+- **Resume:** READ from the number of bytes already stored. The size is fixed at the start of the READ. A file smaller than the stored copy (new card) is fetched again from 0 by the page.
+- **MTU:** the device asks for 517; each data packet carries MTU − 8 bytes.
+- **SD:** read in 4 KB blocks, each an open / seek / read / close in the App loop (never during a panel refresh, the bus is shared; the panel stays powered). Routine flushes wait while a READ runs; the rows stay in the RAM buffer (256 rows, over 20 min even in Fast) and are written right after. A nearly full buffer is still written.
+
+### Build cost
+
+- Flash: 2 019 127 B vs. 1 597 227 B without Bluetooth (+422 KB: NimBLE host and the controller library).
+- IRAM: the controller needs ~33 KB IRAM, which overflowed `iram0_0_seg` by 3.9 KB next to Wi-Fi and PSRAM. `tools/iram_trim.py` (post script of `env:m5paper`) links against a patched copy of the framework's `sections.ld` in the build folder that puts the newlib time and stdio-buffer objects into flash instead of IRAM (the `SPIRAM_CACHE_LIBTIME/LIBIO_IN_IRAM` placements of the prebuilt libs; nothing calls them with the cache disabled). About 2.7 KB IRAM remain free. The script stops the build if the framework's script no longer matches.
+- RAM: the stack is only allocated while Bluetooth is on. Bench: free heap 170 KB before, 143 KB advertising, 185 KB after `deinit` (about 27 KB while on).
+- Transfer rate (bench, Chrome on Windows, USB power): 24.5 KB/s on one file, 6.7 KB/s on another session with small files (per-file overhead dominates). A 150 KB Eco day file takes about 6 s.
+
+### The page (`web/`)
+
+`index.html`, `app.js`, `ble.js` (protocol), `store.js` (IndexedDB cache), `sw.js` + `manifest.webmanifest` (installable offline app), `vendor/uPlot` 1.6.32 (MIT, local copy), icons. Plain HTML + JS, no external requests. `KalliFunghi.html` is the same page as one file (generated by `make_single.py`, do not edit; rerun it after changing the page). `make_icons.py` draws the PNG icons. Web Bluetooth needs a secure context: HTTPS, `http://localhost` or a local file.
+
+Three ways to open it:
+
+1. **GitHub Pages (phones and PCs):** `.github/workflows/pages.yml` publishes `web/` on every push to `main` that changes it (it also checks that `KalliFunghi.html` is current). One-time setup by the repo owner: Settings > Pages > Source "GitHub Actions". The address is then `https://pilger15.github.io/KalliFunghi-M5paper/`. Open it once online, then "Install app" / "Add to home screen": the service worker keeps every file, so the app works fully offline and updates the next time it is online (network first with a 3 s timeout, then the cache).
+2. **Local copy (no internet, no hosting):** copy `web/KalliFunghi.html` (one file) to the phone or PC and open it in Chrome or Edge. Tested: Chrome 156 and Edge 156 on Windows from `file://` (secure context, `navigator.bluetooth` present, scripts and charts work, storage survives a browser restart); the user's Android phone with Chrome 156 from a `content://` email attachment (secure context, chooser works, IndexedDB survives reloads and restarts; Chrome crashed once during that test, cause unknown). The multi-file `index.html` also works from `file://` when the whole `web/` folder is copied, but a lone `index.html` cannot load its scripts. No service worker on a local file. The cache belongs to where the file is opened from: another path or app starts empty.
+3. **localhost on the PC:** double-click `web/start-local.cmd`. It serves `web/` with KiCad's Python on `http://localhost:8765/` (fixed port: the cache is per origin, another port starts empty) and opens the browser.
+
+If Bluetooth is missing, the page's banner names the reason (protocol, secure context, `navigator.bluetooth`, user agent) with a hint: plain http from a LAN address is not secure, in-app viewers and WebViews have no Web Bluetooth, Firefox and Safari have none.
 
 ## SD log
 
@@ -222,6 +291,7 @@ lib/kfcore/src/   pure logic, no Arduino (unit tested)
   ColumnBins        min/max per pixel column
   SampleRing        RAM ring of samples
   RunLog            run folder names and paths, run.txt
+  BleProto          Bluetooth byte formats, CRC-32, flow-control window
   CsvFormat, TimeUtil, CalReminder, BatteryMonitor, Types
 src/
   App               tick loop, wiring
@@ -230,8 +300,10 @@ src/
   sensors/          SCD41, VEML7700
   storage/          SD (log, config, history), NVS settings
   time/             BM8563 clock, Wi-Fi + NTP sync
+  ble/BleSync       Bluetooth session: GATT server, file transfer
   ui/               e-ink power and waveforms, rendering
 bench/usb_detect/   bench sketch
+tools/iram_trim.py  linker script patch for the Bluetooth IRAM overflow
 test/test_core/     unit tests
 ```
 

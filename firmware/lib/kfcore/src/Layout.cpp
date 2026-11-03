@@ -1,6 +1,8 @@
 /* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
 #include "Layout.h"
 
+#include "config.h"
+
 namespace kf {
 namespace layout {
 
@@ -58,7 +60,7 @@ Rect newRunButton() { return mk(kBtnX0, kRowY0 + 5 * kRowPitch, 560, kRowH); }
 Hit hitTest(const UiShape& ui, int x, int y)
 {
     Hit h;
-    if (syncButton().contains(x, y)) { h.target = Target::Sync; return h; }
+    if (kWifiSync && syncButton().contains(x, y)) { h.target = Target::Sync; return h; }
     if (settingsButton().contains(x, y)) { h.target = Target::Settings; return h; }
     if (sidebar().contains(x, y)) { return h; }
 
@@ -69,7 +71,7 @@ Hit hitTest(const UiShape& ui, int x, int y)
         for (int i = 0; i < 3; ++i) {
             if (modeButton(i).contains(x, y)) { h.target = Target::Mode; h.index = i; return h; }
         }
-        if (autoSyncButton().contains(x, y)) { h.target = Target::AutoSync; return h; }
+        if (kWifiSync && autoSyncButton().contains(x, y)) { h.target = Target::AutoSync; return h; }
         if (offsetMinusButton().contains(x, y)) { h.target = Target::OffsetMinus; return h; }
         if (offsetPlusButton().contains(x, y)) { h.target = Target::OffsetPlus; return h; }
         if (calibrateNowButton().contains(x, y)) { h.target = Target::CalibrateNow; return h; }

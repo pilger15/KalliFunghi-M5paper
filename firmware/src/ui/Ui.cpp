@@ -145,6 +145,10 @@ uint32_t Ui::signature(const UiModel& m)
     mix(h, m.calibrating);
     mix(h, m.cal_countdown_s);
     fnv(h, m.message, strlen(m.message));
+    mix(h, m.ble);
+    fnv(h, m.ble_file, strlen(m.ble_file));
+    mix(h, m.ble_pct);
+    fnv(h, m.ble_note, strlen(m.ble_note));
     mix(h, m.auto_sync);
     mix(h, m.temp_offset);
     mix(h, m.last_cal_utc);
@@ -276,7 +280,7 @@ void Ui::drawSidebar(const UiModel& m)
         y += 30;
     }
 
-    drawButton(layout::syncButton(), "Sync", false);
+    if (kWifiSync) { drawButton(layout::syncButton(), "Sync", false); }
     drawButton(layout::settingsButton(), "Settings", m.view == View::Settings);
 }
 
@@ -389,8 +393,10 @@ void Ui::drawSettings(const UiModel& m)
     }
     for (int i = 0; i < 3; ++i) { drawButton(layout::modeButton(i), kModeLabels[i], (int)m.user_mode == i); }
 
-    label(2, "Auto-sync");
-    drawButton(layout::autoSyncButton(), m.auto_sync ? "On" : "Off", m.auto_sync);
+    if (kWifiSync) {
+        label(2, "Auto-sync");
+        drawButton(layout::autoSyncButton(), m.auto_sync ? "On" : "Off", m.auto_sync);
+    }
 
     label(3, "Temp offset");
     drawButton(layout::offsetMinusButton(), "-", false);
@@ -439,8 +445,18 @@ void Ui::drawBox(const UiModel& m)
         text(m.message, b.x + 14, b.y + b.h / 2, &fonts::FreeSans12pt7b, textdatum_t::middle_left);
         return;
     }
-    char line1[48];
-    char line2[48];
+    char line1[64];
+    char line2[64];
+    if (m.ask == Ask::Ble) {
+        if (m.ble == BleUi::Sending) { snprintf(line1, sizeof(line1), "Sending %s, %d %%", m.ble_file, m.ble_pct); }
+        else { snprintf(line1, sizeof(line1), "Bluetooth: connected to the page"); }
+        if (m.ble_note[0]) { snprintf(line2, sizeof(line2), "%s", m.ble_note); }
+        else { snprintf(line2, sizeof(line2), "Stays on while the page is open"); }
+        text(line1, b.x + 14, b.y + 14, &fonts::FreeSans9pt7b);
+        text(line2, b.x + 14, b.y + 44, &fonts::FreeSans9pt7b);
+        drawButton(layout::calSecondButton(), "Stop", false);
+        return;
+    }
     if (m.ask != Ask::None) {
         bool new_run = m.ask == Ask::NewRun;
         text(new_run ? "Start new measurement?" : "Calibrate CO2 now?", b.x + 14, b.y + 14, &fonts::FreeSans9pt7b);

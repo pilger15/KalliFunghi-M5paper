@@ -100,7 +100,7 @@ void SdStore::traceCard()
 }
 #endif
 
-/* Edited by Claude Sonnet 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 // A total of 0 means the FAT query failed, not that the card is full: keep logging.
 void SdStore::checkFree()
 {
@@ -111,6 +111,7 @@ void SdStore::checkFree()
         event("sd size query failed, assuming space left");
         return;
     }
+    free_ = total > used ? total - used : 0;
     full_ = total > used ? (total - used) < kSdMinFreeBytes : true;
     if (full_ && !full_reported_) { event("sd full, %llu bytes free", (unsigned long long)(total > used ? total - used : 0)); }
     full_reported_ = full_;
@@ -473,6 +474,66 @@ void SdStore::loadRing(SampleRing& ring, int64_t now_utc, uint32_t seconds)
 {
     if (!mounted_ || !hasRun()) { return; }
     forEachRow(run_.dir, now_utc - seconds, now_utc + 1, [&](const Sample& s) { ring.push(s); });
+}
+
+} // namespace kf
+
+namespace kf {
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// error.log and sync.csv first, then every run folder's files. Old flat files and other
+// folders are not listed (BleProto::validPath would refuse them anyway).
+bool SdStore::listFiles(const std::function<void(const char* rel, uint32_t size)>& fn)
+{
+    if (!remountIfNeeded()) { return false; }
+    File dir = SD.open(kLogDir);
+    if (!dir || !dir.isDirectory()) { return false; }
+    char rel[bleproto::kPathMax];
+    for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+        const char* name = f.name();
+        const char* slash = strrchr(name, '/');
+        if (slash) { name = slash + 1; }
+        if (!f.isDirectory()) {
+            if (strcmp(name, "error.log") == 0 || strcmp(name, "sync.csv") == 0) { fn(name, (uint32_t)f.size()); }
+        } else if (parseRunNumber(name) >= 0) {
+            char dir_name[kRunDirMax];
+            snprintf(dir_name, sizeof(dir_name), "%s", name);
+            for (File g = f.openNextFile(); g; g = f.openNextFile()) {
+                const char* gn = g.name();
+                const char* gs = strrchr(gn, '/');
+                if (gs) { gn = gs + 1; }
+                snprintf(rel, sizeof(rel), "%s/%s", dir_name, gn);
+                if (!g.isDirectory() && bleproto::validPath(rel)) { fn(rel, (uint32_t)g.size()); }
+                g.close();
+            }
+        }
+        f.close();
+    }
+    dir.close();
+    return true;
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Opens, seeks, reads and closes again, so no file stays open across a flush() that may
+// append to the same day file.
+int SdStore::readChunk(const char* rel, uint32_t offset, uint8_t* buf, size_t len, uint32_t& size)
+{
+    if (!remountIfNeeded()) { return -1; }
+    char path[kLogPathMax + 8];
+    snprintf(path, sizeof(path), "%s/%s", kLogDir, rel);
+    File f = SD.open(path, FILE_READ);
+    if (!f || f.isDirectory()) { return -2; }
+    size = (uint32_t)f.size();
+    int n = 0;
+    if (len > 0 && offset < size) {
+        if (!f.seek(offset)) {
+            f.close();
+            return -1;
+        }
+        n = (int)f.read(buf, len);
+    }
+    f.close();
+    return n;
 }
 
 } // namespace kf

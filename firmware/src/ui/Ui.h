@@ -10,8 +10,12 @@
 
 namespace kf {
 
-// Yes / No question in the bottom strip.
-enum class Ask : uint8_t { None, NewRun, CalNow };
+// Question in the bottom strip. Ble is the Bluetooth status box (a page is connected)
+// with a Stop button.
+enum class Ask : uint8_t { None, NewRun, CalNow, Ble };
+
+// Bluetooth box contents (BleSync::State as seen by the UI).
+enum class BleUi : uint8_t { Off, Advertising, Connected, Sending };
 
 struct UiModel {
     View view = View::Home;
@@ -37,6 +41,12 @@ struct UiModel {
     bool calibrating = false;
     int cal_countdown_s = 0;
     char message[64] = "";
+
+    // Bluetooth box (ask == Ask::Ble)
+    BleUi ble = BleUi::Off;
+    char ble_file[40] = "";          // sending: file
+    int ble_pct = 0;
+    char ble_note[48] = "";          // last result, e.g. "Time set, corrected +3 s"
 
     bool auto_sync = true;
     float temp_offset = 0.0f;
