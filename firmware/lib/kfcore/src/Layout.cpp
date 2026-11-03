@@ -53,11 +53,26 @@ Rect offsetValue() { return mk(kBtnX0 + 110, kRowY0 + 3 * kRowPitch, 150, kRowH)
 Rect offsetPlusButton() { return mk(kBtnX0 + 270, kRowY0 + 3 * kRowPitch, 100, kRowH); }
 Rect calibrateNowButton() { return mk(kBtnX0, kRowY0 + 4 * kRowPitch, 560, kRowH); }
 Rect newRunButton() { return mk(kBtnX0, kRowY0 + 5 * kRowPitch, 560, kRowH); }
+Rect wifiButton() { return mk(kBtnX0 + 220, kRowY0 + 2 * kRowPitch, 340, kRowH); }
+
+/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+ViewTraits traits(View v)
+{
+    ViewTraits t;
+    if (v == View::Keyboard) {
+        t.immediate_taps = true;
+        t.double_tap_home = false;
+        t.sidebar = false;
+    }
+    return t;
+}
 
 /* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+// Wi-Fi page body and keyboard have their own hit tests (WifiLayout, Keyboard).
 Hit hitTest(const UiShape& ui, int x, int y)
 {
     Hit h;
+    if (!traits(ui.view).sidebar) { return h; }
     if (syncButton().contains(x, y)) { h.target = Target::Sync; return h; }
     if (settingsButton().contains(x, y)) { h.target = Target::Settings; return h; }
     if (sidebar().contains(x, y)) { return h; }
@@ -74,8 +89,10 @@ Hit hitTest(const UiShape& ui, int x, int y)
         if (offsetPlusButton().contains(x, y)) { h.target = Target::OffsetPlus; return h; }
         if (calibrateNowButton().contains(x, y)) { h.target = Target::CalibrateNow; return h; }
         if (newRunButton().contains(x, y)) { h.target = Target::NewRun; return h; }
+        if (wifiButton().contains(x, y)) { h.target = Target::Wifi; return h; }
         return h;
     }
+    if (ui.view == View::Wifi) { return h; }
 
     if (ui.cal_box && calBox().contains(x, y)) {
         if (!ui.box_buttons) { return h; }

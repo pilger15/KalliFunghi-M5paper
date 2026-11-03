@@ -1,5 +1,5 @@
 /* Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None */
-// Host unit tests for lib/kfcore: pio test -e native
+// Unit tests for lib/kfcore: pio test -e m5paper (on the device) or -e native
 
 #include <math.h>
 #include <stdio.h>
@@ -9,6 +9,7 @@
 #include "CalReminder.h"
 #include "ColumnBins.h"
 #include "CsvFormat.h"
+#include "Keyboard.h"
 #include "Layout.h"
 #include "PowerStateMachine.h"
 #include "RunLog.h"
@@ -16,6 +17,8 @@
 #include "TapClassifier.h"
 #include "TimeUtil.h"
 #include "UsbHeuristic.h"
+#include "WifiLayout.h"
+#include "WifiList.h"
 #include "config.h"
 
 using namespace kf;
@@ -537,6 +540,243 @@ void test_battery_low_needs_consecutive_readings()
     TEST_ASSERT_EQUAL(50, b.percent());
 }
 
+// ---- Keyboard ----
+// Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None
+
+void test_kb_keys_tile_area_and_are_big_enough()
+{
+    Rect a = kb::keyArea();
+    TEST_ASSERT_EQUAL(540, a.y + a.h);
+    long area = 0;
+    for (int i = 0; i < kb::kKeyCount; ++i) {
+        kb::Key k = kb::key(kb::Layer::Lower, i);
+        TEST_ASSERT_TRUE(k.kind != kb::KeyKind::None);
+        TEST_ASSERT_TRUE(k.r.w >= 72 && k.r.h >= 64);
+        TEST_ASSERT_TRUE(k.r.x >= 0 && k.r.x + k.r.w <= 960 && k.r.y >= a.y && k.r.y + k.r.h <= 540);
+        area += (long)k.r.w * k.r.h;
+        for (int j = 0; j < i; ++j) {
+            Rect o = kb::key(kb::Layer::Lower, j).r;
+            bool overlap = k.r.x < o.x + o.w && o.x < k.r.x + k.r.w && k.r.y < o.y + o.h && o.y < k.r.y + k.r.h;
+            TEST_ASSERT_FALSE(overlap);
+        }
+    }
+    TEST_ASSERT_EQUAL((long)a.w * a.h, area);   // no gaps, no overlaps
+    // Hit test finds the key at its centre; the Show/Hide button sits in the field.
+    kb::Key q = kb::key(kb::Layer::Lower, 0);
+    TEST_ASSERT_EQUAL('q', kb::hitTest(kb::Layer::Lower, q.r.x + q.r.w / 2, q.r.y + q.r.h / 2).ch);
+    Rect sh = kb::showHideButton();
+    TEST_ASSERT_EQUAL((int)kb::KeyKind::ShowHide, (int)kb::hitTest(kb::Layer::Lower, sh.x + 5, sh.y + 5).kind);
+    TEST_ASSERT_EQUAL((int)kb::KeyKind::None, (int)kb::hitTest(kb::Layer::Lower, 100, 20).kind);
+}
+
+void test_kb_all_printable_ascii_reachable()
+{
+    bool seen[128] = {false};
+    const kb::Layer layers[4] = {kb::Layer::Lower, kb::Layer::Upper, kb::Layer::Sym1, kb::Layer::Sym2};
+    for (kb::Layer l : layers) {
+        for (int i = 0; i < kb::kKeyCount; ++i) {
+            kb::Key k = kb::key(l, i);
+            if (k.kind == kb::KeyKind::Char || k.kind == kb::KeyKind::Space) {
+                TEST_ASSERT_TRUE(k.ch >= 0x20 && k.ch <= 0x7E);
+                seen[(int)k.ch] = true;
+            }
+        }
+    }
+    for (int c = 0x20; c <= 0x7E; ++c) {
+        if (!seen[c]) { TEST_FAIL_MESSAGE("printable ASCII character not on any layer"); }
+    }
+}
+
+void test_kb_shift_once_caps_and_layers()
+{
+    kb::Keyboard k;
+    k.begin(kb::Mode::Password);
+    kb::Key shift = kb::key(kb::Layer::Lower, 19);
+    kb::Key a = kb::key(kb::Layer::Lower, 10);
+    TEST_ASSERT_EQUAL((int)kb::KeyKind::Shift, (int)shift.kind);
+
+    // One-shot: one upper-case letter, then back to lower case.
+    k.press(shift, 1000);
+    TEST_ASSERT_EQUAL((int)kb::Layer::Upper, (int)k.layer());
+    uint8_t ch = k.press(kb::key(k.layer(), 10), 2000);
+    TEST_ASSERT_TRUE(ch & kb::Keyboard::kKeys);
+    TEST_ASSERT_EQUAL_STRING("A", k.text());
+    TEST_ASSERT_EQUAL((int)kb::Layer::Lower, (int)k.layer());
+
+    // Double Shift = Caps Lock, stays on.
+    k.press(shift, 3000);
+    k.press(shift, 3000 + kb::kCapsWindowMs);
+    TEST_ASSERT_EQUAL((int)kb::ShiftState::Caps, (int)k.shift());
+    k.press(kb::key(k.layer(), 10), 4000);
+    k.press(kb::key(k.layer(), 10), 4100);
+    TEST_ASSERT_EQUAL_STRING("AAA", k.text());
+    k.press(shift, 5000);
+    TEST_ASSERT_EQUAL((int)kb::ShiftState::Off, (int)k.shift());
+
+    // Slow second Shift tap: off again, not Caps.
+    k.press(shift, 6000);
+    k.press(shift, 6000 + kb::kCapsWindowMs + 1);
+    TEST_ASSERT_EQUAL((int)kb::ShiftState::Off, (int)k.shift());
+
+    // Symbols: toggle key, Shift switches symbol pages, letters come back in lower case.
+    kb::Key toggle = kb::key(kb::Layer::Lower, 29);
+    k.press(toggle, 7000);
+    TEST_ASSERT_EQUAL((int)kb::Layer::Sym1, (int)k.layer());
+    k.press(shift, 7100);
+    TEST_ASSERT_EQUAL((int)kb::Layer::Sym2, (int)k.layer());
+    k.press(kb::key(k.layer(), 0), 7200);   // '1', symbol layers stay
+    TEST_ASSERT_EQUAL((int)kb::Layer::Sym2, (int)k.layer());
+    k.press(toggle, 7300);
+    TEST_ASSERT_EQUAL((int)kb::Layer::Lower, (int)k.layer());
+    k.press(a, 7400);
+    TEST_ASSERT_EQUAL_STRING("AAA1a", k.text());
+}
+
+void test_kb_length_limits_and_ok()
+{
+    kb::Keyboard k;
+    kb::Key x = kb::key(kb::Layer::Lower, 21);   // 'x'
+    kb::Key bksp = kb::key(kb::Layer::Lower, 27);
+    kb::Key ok = kb::key(kb::Layer::Lower, 31);
+    TEST_ASSERT_EQUAL((int)kb::KeyKind::Ok, (int)ok.kind);
+
+    k.begin(kb::Mode::Password);
+    for (int i = 0; i < 7; ++i) { k.press(x, 0); }
+    TEST_ASSERT_FALSE(k.okEnabled());
+    TEST_ASSERT_EQUAL(0, k.press(ok, 0));
+    uint8_t ch = k.press(x, 0);
+    TEST_ASSERT_TRUE(ch & kb::Keyboard::kOkKey);   // 8 chars: OK becomes enabled
+    TEST_ASSERT_TRUE(k.okEnabled());
+    TEST_ASSERT_EQUAL(kb::Keyboard::kDone, k.press(ok, 0));
+    for (int i = 0; i < 70; ++i) { k.press(x, 0); }
+    TEST_ASSERT_EQUAL(63, k.length());
+    TEST_ASSERT_EQUAL(0, k.press(x, 0) & kb::Keyboard::kText);
+    k.press(bksp, 0);
+    TEST_ASSERT_EQUAL(62, k.length());
+
+    k.begin(kb::Mode::Ssid);
+    TEST_ASSERT_FALSE(k.okEnabled());
+    k.press(x, 0);
+    TEST_ASSERT_TRUE(k.okEnabled());
+    for (int i = 0; i < 40; ++i) { k.press(x, 0); }
+    TEST_ASSERT_EQUAL(32, k.length());
+    k.press(bksp, 0);
+    for (int i = 0; i < 40; ++i) { k.press(bksp, 0); }
+    TEST_ASSERT_EQUAL(0, k.length());
+
+    // Hidden network: empty = open network, 1..7 not allowed.
+    k.begin(kb::Mode::PasswordOrOpen);
+    TEST_ASSERT_TRUE(k.okEnabled());
+    k.press(x, 0);
+    TEST_ASSERT_FALSE(k.okEnabled());
+
+    // Show/Hide only changes the field; Cancel always works.
+    TEST_ASSERT_TRUE(k.shown());
+    TEST_ASSERT_EQUAL(kb::Keyboard::kField, k.press(kb::hitTest(kb::Layer::Lower, 810, 50), 0));
+    TEST_ASSERT_FALSE(k.shown());
+    TEST_ASSERT_EQUAL(kb::Keyboard::kCancel, k.press(kb::key(kb::Layer::Lower, 28), 0));
+}
+
+void test_view_traits()
+{
+    TEST_ASSERT_FALSE(layout::traits(View::Home).immediate_taps);
+    TEST_ASSERT_TRUE(layout::traits(View::Wifi).double_tap_home);
+    ViewTraits t = layout::traits(View::Keyboard);
+    TEST_ASSERT_TRUE(t.immediate_taps);
+    TEST_ASSERT_FALSE(t.double_tap_home);
+    TEST_ASSERT_FALSE(t.sidebar);
+    // No sidebar hits on the keyboard.
+    UiShape ui;
+    ui.view = View::Keyboard;
+    Rect s = layout::syncButton();
+    TEST_ASSERT_EQUAL((int)Target::None, (int)layout::hitTest(ui, s.x + 5, s.y + 5).target);
+    ui.view = View::Settings;
+    Rect w = layout::wifiButton();
+    TEST_ASSERT_EQUAL((int)Target::Wifi, (int)layout::hitTest(ui, w.x + 5, w.y + 5).target);
+    TEST_ASSERT_TRUE(w.x + w.w <= layout::kSidebarX);
+    TEST_ASSERT_TRUE(w.x >= layout::autoSyncButton().x + layout::autoSyncButton().w);
+}
+
+// ---- Wi-Fi list ----
+// Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None
+
+NetInfo net(const char* ssid, int rssi, WifiSecurity sec = WifiSecurity::Psk)
+{
+    NetInfo n;
+    strncpy(n.ssid, ssid, sizeof(n.ssid) - 1);
+    n.rssi = (int8_t)rssi;
+    n.security = sec;
+    return n;
+}
+
+void test_wifi_merge_and_sort()
+{
+    NetInfo n[7] = {
+        net("home", -70), net("", -40), net("cafe", -60, WifiSecurity::Open), net("home", -50),
+        net("b", -80), net("a", -80), net("home", -90),
+    };
+    int c = mergeNetworks(n, 7);
+    TEST_ASSERT_EQUAL(4, c);
+    TEST_ASSERT_EQUAL_STRING("home", n[0].ssid);
+    TEST_ASSERT_EQUAL(-50, n[0].rssi);
+    TEST_ASSERT_EQUAL_STRING("cafe", n[1].ssid);
+    TEST_ASSERT_EQUAL((int)WifiSecurity::Open, (int)n[1].security);
+    TEST_ASSERT_EQUAL_STRING("a", n[2].ssid);   // equal RSSI: by name
+    TEST_ASSERT_EQUAL_STRING("b", n[3].ssid);
+    TEST_ASSERT_EQUAL(0, mergeNetworks(n, 0));
+}
+
+void test_wifi_bars_and_printable()
+{
+    TEST_ASSERT_EQUAL(4, signalBars(-40));
+    TEST_ASSERT_EQUAL(3, signalBars(-60));
+    TEST_ASSERT_EQUAL(2, signalBars(-70));
+    TEST_ASSERT_EQUAL(1, signalBars(-80));
+    TEST_ASSERT_EQUAL(0, signalBars(-95));
+    char out[8];
+    printableSsid("ab\x01\xC3\xA9z", out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("ab???z", out);
+    printableSsid("abcdefghij", out, sizeof(out));
+    TEST_ASSERT_EQUAL_STRING("abcdefg", out);
+}
+
+void test_wifi_sync_candidates_order()
+{
+    Credentials c[2];
+    TEST_ASSERT_EQUAL(2, syncCandidates("home", "pw1", "hotspot", "pw2", c));
+    TEST_ASSERT_EQUAL_STRING("home", c[0].ssid);
+    TEST_ASSERT_EQUAL_STRING("pw1", c[0].password);
+    TEST_ASSERT_EQUAL_STRING("hotspot", c[1].ssid);
+    TEST_ASSERT_EQUAL(1, syncCandidates("", "", "hotspot", "pw2", c));
+    TEST_ASSERT_EQUAL_STRING("hotspot", c[0].ssid);
+    TEST_ASSERT_EQUAL(1, syncCandidates("hotspot", "new", "hotspot", "old", c));   // same SSID: saved wins
+    TEST_ASSERT_EQUAL_STRING("new", c[0].password);
+    TEST_ASSERT_EQUAL(1, syncCandidates("home", nullptr, "", "", c));
+    TEST_ASSERT_EQUAL_STRING("", c[0].password);
+    TEST_ASSERT_EQUAL(0, syncCandidates(nullptr, nullptr, nullptr, nullptr, c));
+}
+
+void test_wifi_layout_hits()
+{
+    wifilayout::Shape s;
+    s.rows = 2;
+    Rect r1 = wifilayout::listRow(1);
+    TEST_ASSERT_TRUE(r1.h >= 64);
+    wifilayout::Hit h = wifilayout::hitTest(s, r1.x + 10, r1.y + 10);
+    TEST_ASSERT_EQUAL((int)wifilayout::Target::Network, (int)h.target);
+    TEST_ASSERT_EQUAL(1, h.index);
+    Rect r2 = wifilayout::listRow(2);
+    TEST_ASSERT_EQUAL((int)wifilayout::Target::None, (int)wifilayout::hitTest(s, r2.x + 10, r2.y + 10).target);
+    Rect f = wifilayout::forgetButton();
+    TEST_ASSERT_EQUAL((int)wifilayout::Target::None, (int)wifilayout::hitTest(s, f.x + 5, f.y + 5).target);
+    s.can_forget = true;
+    TEST_ASSERT_EQUAL((int)wifilayout::Target::Forget, (int)wifilayout::hitTest(s, f.x + 5, f.y + 5).target);
+    Rect last = wifilayout::listRow(wifilayout::kRowsPerPage - 1);
+    TEST_ASSERT_TRUE(last.y + last.h <= 540);
+    Rect d = wifilayout::downButton();
+    TEST_ASSERT_TRUE(d.y + d.h <= 540 && d.x + d.w <= layout::kSidebarX);
+}
+
 int runAll()
 {
     UNITY_BEGIN();
@@ -572,6 +812,15 @@ int runAll()
     RUN_TEST(test_cal_never_and_base);
     RUN_TEST(test_cal_legacy_migration);
     RUN_TEST(test_battery_low_needs_consecutive_readings);
+    RUN_TEST(test_kb_keys_tile_area_and_are_big_enough);
+    RUN_TEST(test_kb_all_printable_ascii_reachable);
+    RUN_TEST(test_kb_shift_once_caps_and_layers);
+    RUN_TEST(test_kb_length_limits_and_ok);
+    RUN_TEST(test_view_traits);
+    RUN_TEST(test_wifi_merge_and_sort);
+    RUN_TEST(test_wifi_bars_and_printable);
+    RUN_TEST(test_wifi_sync_candidates_order);
+    RUN_TEST(test_wifi_layout_hits);
     return UNITY_END();
 }
 

@@ -100,4 +100,31 @@ void Display::rest(bool deep)
     }
 }
 
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+void Display::beginRegion(Wave w)
+{
+    wake();
+    epd_mode_t m = (w == Wave::Fastest) ? epd_mode_t::epd_fastest
+                 : (w == Wave::Fast) ? epd_mode_t::epd_fast : epd_mode_t::epd_quality;
+    M5.Display.setEpdMode(m);
+    M5.Display.startWrite();
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// In epd_fastest M5GFX does not wait for a running update that overlaps the new
+// area; in the other modes it does (inside the drawing calls).
+void Display::endRegion(bool wait)
+{
+    M5.Display.endWrite();
+    M5.Display.display();
+    if (wait) { M5.Display.waitDisplay(); }
+    ++region_count_;
+}
+
+/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+bool Display::busy() const
+{
+    return M5.Display.displayBusy();
+}
+
 } // namespace kf

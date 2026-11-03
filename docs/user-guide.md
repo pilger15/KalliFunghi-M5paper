@@ -28,10 +28,12 @@ The home screen shows the last 6 h of each value (change the range in Settings):
 | Any touch | The screen updates more often for 5 min. Each further touch restarts the 5 min. |
 | Tap a plot | Shows that plot full screen. |
 | Double tap anywhere | Back to the home screen, from any page. |
-| Tap **Sync** | Connects to the phone hotspot and sets the clock. |
+| Tap **Sync** | Connects to your Wi-Fi network (see Wi-Fi) or the phone hotspot and sets the clock. |
 | Tap **Settings** | Opens the settings; tap it again to leave. |
 
 Buttons react after about half a second: the device first waits to see whether a second tap follows. E-ink needs another moment to redraw, so wait for the screen to change before tapping again.
+
+On the keyboard this is different: keys react at once, and a double tap does not go home (passwords have double letters). Leave the keyboard with **Cancel**.
 
 ## Modes and update rates
 
@@ -58,7 +60,9 @@ Sync about once a month; the clock drifts roughly 1 min per month. Summer and wi
 4. The bottom of the screen shows "Sync ok" and how many seconds the clock was corrected, or why it failed.
 5. Turn the hotspot off again.
 
-**Auto-sync:** once a day, if the last sync is older than 7 days, the device quietly looks for the hotspot for 10 s. Leaving the hotspot on near the device is enough.
+If you saved a Wi-Fi network (see Wi-Fi), Sync tries it first and then the phone hotspot.
+
+**Auto-sync:** once a day, if the last sync is older than 7 days, the device quietly tries your saved network and then the hotspot, 10 s each. Leaving the hotspot on near the device is enough.
 
 "! Clock" in the sidebar means the clock was never synced or the last sync is older than 30 days. Readings taken before the first sync are still saved, in a separate file.
 
@@ -67,6 +71,23 @@ Sync about once a month; the clock drifts roughly 1 min per month. Summer and wi
 ```json
 { "wifi": { "ssid": "your-hotspot", "password": "your-password" } }
 ```
+
+## Wi-Fi
+
+In Settings, tap **Wi-Fi...**. The page shows which networks Sync uses.
+
+1. Tap **Scan**. After a few seconds the networks nearby appear, strongest first, with signal bars and a lock for password-protected ones. **Up** and **Down** page through a long list.
+2. Tap your network. For a protected network the keyboard opens: type the password and tap **OK**. Open networks connect right away.
+3. The device tries to connect and shows the result: "Connected ..., saved", "Wrong password", "Network not found" or "Connect timeout". Only a network that connected is saved.
+4. Tap **Sync now** to set the clock over it.
+
+**Hidden network:** tap **Enter name**, type the network name, **OK**, then the password (leave it empty for an open network).
+
+**Forget** removes the saved network; Sync then only uses the phone hotspot. One network can be saved. Networks that need a user name (802.1X, eduroam) are not supported.
+
+**Keyboard:** **Shift** gives one capital letter; tap it twice quickly for Caps Lock, once more to turn it off. **123** shows digits and symbols, **#+=** more symbols, **abc** goes back to letters. **Del** deletes the last character. **Hide** hides the password as `*` (it is shown by default). The counter shows the length; **OK** only works with 8 to 63 characters (network names: 1 to 32). The keyboard closes by itself after 3 min without a key. While typing, the screen redraws only the text, with a faster mode that can leave faint traces; they clear when you pause.
+
+The password is stored on the device without encryption.
 
 ## Settings
 
@@ -80,6 +101,7 @@ Tap **Settings** in the sidebar; tap it again or double tap to leave. Settings a
 | Temperature offset | 0 to 10 °C in 0.5 steps | 0 °C |
 | CO2 calibration | Calibrate CO2 now | — |
 | Measurement | New measurement | — |
+| Wi-Fi | Scan, choose, forget (see Wi-Fi) | phone hotspot |
 
 **CO2 calibration:** the device corrects its CO2 reading against fresh outdoor air (420 ppm). Once a week a box at the bottom of the screen reminds you; the device keeps working normally while it is shown.
 
@@ -117,8 +139,9 @@ To copy the data, switch the device off first, then take out the SD card. Readin
 
 | Symptom | What to do |
 | --- | --- |
-| "Hotspot not found" | Check that the hotspot is on, uses exactly the name set up for the device, and runs on 2.4 GHz ("Maximize Compatibility" on iPhone). Hold the phone closer. |
-| "Wrong password" | Check the hotspot password set up for the device. |
+| "Network not found" | Check that the network or hotspot is on, uses exactly the name set up for the device, and runs on 2.4 GHz ("Maximize Compatibility" on iPhone). Move it closer. |
+| "Wrong password" | Check the password: on the Wi-Fi page choose the network again, or for the hotspot the password set up for the device. |
+| "Connect timeout" | The network did not answer in time. Move closer and try again. |
 | "NTP timeout" | The hotspot has no internet. Check mobile data on the phone. |
 | "! Clock" in the sidebar | Sync the clock. |
 | "no sensor" in a plot | Check the cable in Port A, then switch the device off and on. |

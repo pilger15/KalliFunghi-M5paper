@@ -13,6 +13,7 @@
 #include "config.h"
 #include "hw/Board.h"
 #include "hw/DebugTrace.h"
+#include "WifiList.h"
 #include "time/TimeSync.h"
 
 namespace kf {
@@ -184,6 +185,14 @@ void App::setup()
 void App::loop()
 {
     uint32_t now = millis();
+    if (kbOpen() && diff(now, kb_next_tick_ms_) < 0) {
+        // Keyboard: touch and key redraws at full rate, the rest of the tick once a second.
+        handleTouch(now);
+        if (kbOpen()) { keyboardTick(now); }
+        delay(kKbPollMs);
+        return;
+    }
+    kb_next_tick_ms_ = now + kKbTickMs;
     ++wakes_;
 
     // Fixed load point: radio off, EPD in standby or off, before any work.
@@ -222,9 +231,20 @@ void App::loop()
 }
 
 /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Gesture rules come from the view (layout::traits): text-entry views act on
+// touch-down and have no double tap.
 void App::handleTouch(uint32_t now)
 {
     M5.update();
+    if (touch_block_) {
+        // The view changed under the finger: its release must not tap the new view.
+        for (int i = 0; i < M5.Touch.getCount(); ++i) {
+            if (M5.Touch.getDetail(i).isPressed()) { return; }
+        }
+        touch_block_ = false;
+        return;
+    }
+    const ViewTraits tr = layout::traits(view_);
     UiModel shape_model;
     shape_model.view = view_;
     shape_model.ask = ask_;
@@ -236,11 +256,16 @@ void App::handleTouch(uint32_t now)
 
     for (int i = 0; i < M5.Touch.getCount(); ++i) {
         const auto& t = M5.Touch.getDetail(i);
-        if (t.wasPressed()) { psm_.onTouch(now); }
-        if (t.wasClicked()) {
-            Hit h = layout::hitTest(shape, t.x, t.y);
-            TapEvent ev = taps_.onTap(now, t.x, t.y, layout::actionable(h));
-            if (ev.kind == TapEvent::DoubleTap) {
+        if (t.wasPressed()) {
+            psm_.onTouch(now);
+            if (tr.immediate_taps) {
+                keyDown(t.x, t.y, now);
+                continue;
+            }
+        }
+        if (!tr.immediate_taps && t.wasClicked()) {
+            TapEvent ev = taps_.onTap(now, t.x, t.y, actionableAt(shape, t.x, t.y));
+            if (ev.kind == TapEvent::DoubleTap && tr.double_tap_home) {
                 KF_TRACE("double tap");
                 if (view_ != View::Home) {
                     view_ = View::Home;
@@ -249,10 +274,9 @@ void App::handleTouch(uint32_t now)
             }
         }
     }
+    if (tr.immediate_taps) { return; }
     TapEvent ev = taps_.poll(now);
-    if (ev.kind == TapEvent::Tap) {
-        act(layout::hitTest(shape, ev.x, ev.y), now);
-    }
+    if (ev.kind == TapEvent::Tap) { actAt(shape, ev.x, ev.y, now); }
 }
 
 /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
@@ -304,6 +328,9 @@ void App::act(const Hit& h, uint32_t now)
         markDirty(false, now);
         break;
     }
+    case Target::Wifi:
+        openWifiPage(now);
+        break;
     case Target::CalibrateNow:
         if (!calibrating_) {
             cal_manual_open_ = true;
@@ -369,13 +396,14 @@ void App::act(const Hit& h, uint32_t now)
     }
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::applySensorMode(uint32_t now)
 {
     SamplingMode want = psm_.samplingMode();
     if (want == scd_.mode()) { return; }
-    // Never switch during a calibration: it would reset the 3 min warm-up.
-    if (calibrating_) { return; }
+    // Never switch during a calibration: it would reset the 3 min warm-up. Not while
+    // the keyboard is open either: the SCD41 stop waits 500 ms and would block keys.
+    if (calibrating_ || kbOpen()) { return; }
     KF_TRACE("sensor mode %d -> %d", (int)scd_.mode(), (int)want);
     flush(now, true);
     scd_.setMode(want, now);
@@ -405,32 +433,34 @@ void App::napOrDelay(uint32_t ms)
     else { board::nap(ms); }
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::sample(uint32_t now)
 {
     Scd41Sensor::Reading r{};
+
+    if (lux_pending_) {
+        // Second half of a sample started while the keyboard was open.
+        if (diff(now, lux_ready_ms_) < 0) { return; }
+        lux_pending_ = false;
+        float lux = 0.0f;
+        bool lux_ok = light_.read(lux);
+        recordSample(lux_scd_ok_, lux_r_, lux_ok, lux);
+        return;
+    }
 
     if (scd_.mode() == SamplingMode::Ultra) {
         if (shot_pending_) {
             if (diff(now, shot_ready_ms_) < 0) { return; }
             shot_pending_ = false;
             bool ok = scd_.readShot(r);
-            light_.start();
-            napOrDelay(kVemlSettleMs);
-            float lux = 0.0f;
-            bool lux_ok = light_.read(lux);
-            recordSample(ok, r, lux_ok, lux);
+            finishSample(ok, r, now);
             return;
         }
         if (diff(now, next_sample_ms_) < 0) { return; }
         next_sample_ms_ = now + sampleIntervalMs();
-        if (!scd_.present() && !scd_.reinit(now)) {
+        if (!scd_.present() && (kbOpen() || !scd_.reinit(now))) {
             // Sensor missing: still log light on the Ultra cycle.
-            light_.start();
-            napOrDelay(kVemlSettleMs);
-            float lux = 0.0f;
-            bool lux_ok = light_.read(lux);
-            recordSample(false, r, lux_ok, lux);
+            finishSample(false, r, now);
             return;
         }
         if (scd_.triggerShot()) {
@@ -454,11 +484,27 @@ void App::sample(uint32_t now)
     }
     waiting_for_scd_ = false;
     next_sample_ms_ = now + sampleIntervalMs();
+    finishSample(ok, r, now);
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Light reading after the SCD41 part. With the keyboard open the 130 ms VEML7700
+// integration becomes a deadline (read by the next sample() call) instead of a nap,
+// so it never blocks a key press.
+void App::finishSample(bool scd_ok, const Scd41Sensor::Reading& r, uint32_t now)
+{
     light_.start();
+    if (kbOpen()) {
+        lux_pending_ = true;
+        lux_ready_ms_ = now + kVemlSettleMs;
+        lux_scd_ok_ = scd_ok;
+        lux_r_ = r;
+        return;
+    }
     napOrDelay(kVemlSettleMs);
     float lux = 0.0f;
     bool lux_ok = light_.read(lux);
-    recordSample(ok, r, lux_ok, lux);
+    recordSample(scd_ok, r, lux_ok, lux);
 }
 
 /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
@@ -485,7 +531,7 @@ void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, 
             sd_.event("scd41 still no data, %lu reinits so far", (unsigned long)scd_reinits_);
             scd_reinit_logged_ms_ = now;
         }
-        if (!calibrating_) { scd_.reinit(now); }
+        if (!calibrating_ && !kbOpen()) { scd_.reinit(now); }   // reinit blocks; not while typing
         next_sample_ms_ = now + sampleIntervalMs();
     }
     // A sample with no sensor value is not logged to the CSV; the error log notes when
@@ -534,7 +580,7 @@ void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, 
 /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::calibration(uint32_t now)
 {
-    if (!calibrating_) { return; }
+    if (!calibrating_ || kbOpen()) { return; }
     uint32_t warm = (scd_.mode() == SamplingMode::Ultra) ? (now - cal_start_ms_) : scd_.runningMs(now);
     if (warm < kScdFrcWarmupMs || shot_pending_) { return; }
     int corr = 0;
@@ -563,6 +609,7 @@ void App::calibration(uint32_t now)
 /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::autoSync(uint32_t now)
 {
+    if (kbOpen()) { return; }   // blocks up to 20 s; runs once the keyboard is closed
     if (diff(now, next_autosync_ms_) < 0) { return; }
     next_autosync_ms_ = now + kAutoSyncCheckMs;
     if (!settings_.auto_sync) { return; }
@@ -573,40 +620,38 @@ void App::autoSync(uint32_t now)
 }
 
 /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Tries the saved network (Wi-Fi page) first, then the default hotspot
+// (config.json over secrets.h). Each attempt is limited to the sync timeout.
 // Also rebases the calibration and run start after the first sync.
 void App::runSync(bool manual, uint32_t now)
 {
-    if (!psm_.usb() && battery_.mv() < kBatterySyncMinMv) {
-        if (manual) { setMessage("Battery too low for Wi-Fi", now, kMessageMs); }
+    Credentials nets[2];
+    int n = syncCandidates(settings_.wifi_ssid, settings_.wifi_pass, wifi_.ssid, wifi_.password, nets);
+    if (n == 0) {
+        if (manual) { setMessage("No Wi-Fi network set", now, kMessageMs); }
         return;
     }
-    if (calibrating_) {
-        if (manual) { setMessage("Busy calibrating, sync later", now, kMessageMs); }
+    const char* why = radioBegin(manual ? "sync (manual)" : "sync (auto)", now);
+    if (why) {
+        if (manual) { setMessage(why, now, kMessageMs); }
         return;
     }
-    // Marker in NVS and a line on the card before the radio starts: if Wi-Fi resets the
-    // board, the next boot sees it (the queued RAM log would be lost).
-    settings_.sync_running = true;
-    settings_.save();
-    sd_.event("wifi sync start (%s), battery %d mV", manual ? "manual" : "auto", battery_.mv());
-    flush(now, true);
+    uint32_t timeout = manual ? kSyncManualTimeoutMs : kSyncAutoTimeoutMs;
     if (manual) {
         char msg[64];
-        snprintf(msg, sizeof(msg), "Connecting to %s ...", wifi_.ssid);
-        setMessage(msg, now, kSyncManualTimeoutMs + 1000);
+        char ssid[33];
+        printableSsid(nets[0].ssid, ssid, sizeof(ssid));
+        snprintf(msg, sizeof(msg), "Connecting to %s ...", ssid);
+        setMessage(msg, now, timeout * n + 1000);
         refresh(now);
     }
     bool was_valid = clockValid();
-    psm_.onSyncStart();
-    in_sync_ = true;
-    SyncResult res = runTimeSync(clock_, wifi_.ssid, wifi_.password,
-                                 manual ? kSyncManualTimeoutMs : kSyncAutoTimeoutMs,
-                                 [this]() { sample(millis()); });
-    in_sync_ = false;
-    settings_.sync_running = false;
-    settings_.save();
+    SyncResult res = runTimeSync(clock_, nets, n, timeout, [this]() { sample(millis()); });
+    radioEnd();
     now = millis();
-    psm_.onSyncEnd(now);
+    for (int i = 0; i < res.attempts; ++i) {
+        sd_.event("wifi %s: %s", nets[i].ssid, wifilink::resultText(res.link[i]));
+    }
 
     char msg[64];
     if (res.code == SyncResult::Ok) {
@@ -629,7 +674,9 @@ void App::runSync(bool manual, uint32_t now)
         settings_.last_sync_utc = res.utc;
         settings_.save();
         sd_.logSync(res.utc, res.correction_s);
-        snprintf(msg, sizeof(msg), "Sync ok, clock corrected by %+lld s", (long long)res.correction_s);
+        char ssid[33];
+        printableSsid(nets[res.used].ssid, ssid, sizeof(ssid));
+        snprintf(msg, sizeof(msg), "Sync ok via %s, clock %+lld s", ssid, (long long)res.correction_s);
     } else {
         snprintf(msg, sizeof(msg), "Sync failed: %s", syncResultText(res.code));
     }
@@ -815,7 +862,8 @@ void App::buildModel(UiModel& m, uint32_t now)
     bool scd_ok = scd_.present() && scd_missed_ < kScdMissedIntervalsReinit;
     m.sensor_ok[0] = m.sensor_ok[1] = m.sensor_ok[2] = scd_ok;
     m.sensor_ok[3] = light_.present();
-    if (view_ != View::Settings) { prepareBins(now); }
+    if (view_ == View::Home || view_ == View::Plot) { prepareBins(now); }
+    if (view_ == View::Wifi) { m.wifi = &wifi_page_; }
     for (int f = 0; f < kFieldCount; ++f) {
         m.bins[f] = bins_[f];
         float v;
@@ -830,9 +878,14 @@ void App::buildModel(UiModel& m, uint32_t now)
     m.data_version = data_version_;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::refresh(uint32_t now)
 {
+    // The keyboard pushes its own regions and keeps the panel awake (no rest()).
+    if (kbOpen()) {
+        keyboardTick(now);
+        return;
+    }
     if (!dirty_ && diff(now, next_refresh_ms_) < 0) { return; }
     next_refresh_ms_ = now + psm_.refreshIntervalMs();
 
@@ -859,6 +912,8 @@ void App::refresh(uint32_t now)
 void App::flush(uint32_t now, bool force)
 {
     if (sd_.queued() == 0 && sd_.pendingEvents() == 0) { return; }
+    // Keyboard open: SD writes wait until it closes, unless a buffer is nearly full.
+    if (kbOpen() && !force && !sd_.bufferNearlyFull() && !sd_.eventsNearlyFull()) { return; }
     // After a failed write, retry sooner so a re-inserted card is picked up quickly.
     uint32_t interval = sd_.problem() ? kSdRetryMs : kSdFlushMs;
     bool due = force || diff(now, last_flush_ms_) >= (int32_t)interval || sd_.bufferNearlyFull()
@@ -892,9 +947,14 @@ void App::lowBatteryShutdown()
     board::powerOff();
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::sleep(uint32_t now)
 {
+    if (kbOpen()) {
+        // No light sleep with the keyboard open: GT911 polled at full rate.
+        delay(kKbPollMs);
+        return;
+    }
     // Stay awake while a finger is down or a double-tap window is open: M5Unified's
     // lightSleep waits for INT release and drops GT911 data, which would lose taps.
     bool touching = false;

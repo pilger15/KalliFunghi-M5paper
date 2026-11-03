@@ -111,7 +111,7 @@ UiShape Ui::shape(const UiModel& m)
 {
     UiShape s;
     s.view = m.view;
-    s.cal_box = m.box && m.view != View::Settings;
+    s.cal_box = m.box && m.view != View::Settings && m.view != View::Wifi;
     s.box_buttons = m.box_buttons;
     s.cal_manual = m.cal_manual;
     s.cal_ready = !m.calibrating;
@@ -162,6 +162,7 @@ uint32_t Ui::signature(const UiModel& m)
         fnv(h, v, strlen(v));
     }
     mix(h, m.data_version);
+    if (m.wifi) { mix(h, m.wifi->version); }
     return h;
 }
 
@@ -182,20 +183,23 @@ void Ui::drawButton(const Rect& r, const char* label, bool selected, bool enable
     d.setTextColor(kBlack, kWhite);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
+/* Edited by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
 void Ui::draw(const UiModel& m)
 {
     auto& d = M5.Display;
     d.fillScreen(kWhite);
     d.setTextColor(kBlack, kWhite);
 
-    bool box = m.box && m.view != View::Settings;
+    bool box = Ui::shape(m).cal_box;
     switch (m.view) {
     case View::Home:
         for (int i = 0; i < kFieldCount; ++i) { drawPlot(m, i, layout::homeTile(i, box), false); }
         break;
     case View::Plot:
         drawPlot(m, m.plot, layout::plotArea(box), true);
+        break;
+    case View::Wifi:
+        drawWifi(m);
         break;
     default:
         drawSettings(m);
@@ -277,7 +281,7 @@ void Ui::drawSidebar(const UiModel& m)
     }
 
     drawButton(layout::syncButton(), "Sync", false);
-    drawButton(layout::settingsButton(), "Settings", m.view == View::Settings);
+    drawButton(layout::settingsButton(), "Settings", m.view == View::Settings || m.view == View::Wifi);
 }
 
 /* Created by Claude Opus 5.5 | Review priority: Medium | Reviewed by: None */
@@ -391,6 +395,7 @@ void Ui::drawSettings(const UiModel& m)
 
     label(2, "Auto-sync");
     drawButton(layout::autoSyncButton(), m.auto_sync ? "On" : "Off", m.auto_sync);
+    drawButton(layout::wifiButton(), "Wi-Fi...", false);
 
     label(3, "Temp offset");
     drawButton(layout::offsetMinusButton(), "-", false);

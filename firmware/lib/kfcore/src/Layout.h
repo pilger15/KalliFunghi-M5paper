@@ -15,7 +15,15 @@ struct Rect {
     bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
 };
 
-enum class View : uint8_t { Home, Plot, Settings };
+enum class View : uint8_t { Home, Plot, Settings, Wifi, Keyboard };
+
+// Gesture and chrome rules of a view. Text-entry views (the keyboard) fire taps at
+// once and ignore double taps, since passwords contain double letters.
+struct ViewTraits {
+    bool immediate_taps = false;   // act on touch-down, no double-tap window
+    bool double_tap_home = true;
+    bool sidebar = true;
+};
 
 enum class Target : uint8_t {
     None,
@@ -29,6 +37,7 @@ enum class Target : uint8_t {
     OffsetMinus,
     OffsetPlus,
     CalibrateNow,
+    Wifi,         // Settings: opens the Wi-Fi page
     CalConfirm,
     CalPostpone,
     CalCancel,
@@ -74,6 +83,9 @@ Rect offsetValue();
 Rect offsetPlusButton();
 Rect calibrateNowButton();
 Rect newRunButton();
+Rect wifiButton();
+
+ViewTraits traits(View v);
 
 Hit hitTest(const UiShape& ui, int x, int y);
 // True if a single tap on this target does something (it then waits for the

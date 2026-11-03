@@ -14,6 +14,11 @@
 //
 // Waveforms: GC16 (epd_quality) for full refreshes, DU (epd_fast) for partials.
 // The mode is set before drawing: in epd_fast M5GFX writes 1-bit pixels.
+//
+// Regions (keyboard): M5GFX refreshes only the bounding box of what was drawn since
+// the last display(), so beginRegion / endRegion around a small redraw updates just
+// that area. epd_fastest is DU4 in M5GFX 0.2.34 (A2 is not reachable). endRegion
+// can return without waiting for the waveform, so touch polling goes on meanwhile.
 #pragma once
 
 #include <stdint.h>
@@ -29,6 +34,13 @@ public:
     bool frameIsFull() const { return frame_full_; }
     // Pushes the drawn frame and waits until the panel is done.
     void endFrame();
+    enum class Wave : uint8_t { Fastest, Fast, Quality };   // DU4, DU, GC16
+    // Region update: wakes the panel if needed, selects the waveform. Draw after this.
+    void beginRegion(Wave w);
+    // Refreshes the drawn area. wait=false returns as soon as the command is sent.
+    void endRegion(bool wait);
+    // True while the IT8951 still runs a waveform.
+    bool busy() const;
     // After a frame: deep=true puts the controller to sleep, otherwise standby.
     void rest(bool deep);
     // Alternates full black and full white with GC16 to clear ghosting and image
@@ -36,6 +48,7 @@ public:
     void clean(int cycles);
     uint32_t fullCount() const { return full_count_; }
     uint32_t partialCount() const { return partial_count_; }
+    uint32_t regionCount() const { return region_count_; }
 
 private:
     enum class State : uint8_t { Awake, Standby, Sleep };
@@ -47,6 +60,7 @@ private:
     int partials_since_full_ = 0;
     uint32_t full_count_ = 0;
     uint32_t partial_count_ = 0;
+    uint32_t region_count_ = 0;
 };
 
 } // namespace kf

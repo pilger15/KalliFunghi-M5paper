@@ -1,4 +1,4 @@
-<!-- Created by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None -->
+<!-- Edited by Claude Opus 5.5 | Owner: Julian Martus | Review priority: Medium | Reviewed by: None -->
 
 # KalliFunghi firmware
 
@@ -42,7 +42,7 @@ pio test -e native
   - Home view only: age of the last CO2 calibration (`CO2 cal 12d`, `<1d` or `never`) and the run (`Run 4, day 12`; day 1 is the start date, local time)
   - marks: `! Clock` (never synced, or last sync more than 30 days ago), plug icon (USB power), `! SD` (card missing, full or failing), `Cal due`
   - buttons **Sync** and **Settings**
-- **Settings:** plot range (1 h, 6 h, 24 h, 7 d), sampling mode, auto-sync on/off, SCD41 temperature offset (0 to 10 degC in 0.5 steps), **Calibrate CO2 now** (with the date of the last calibration), **New measurement** (with the current run and its start date).
+- **Settings:** plot range (1 h, 6 h, 24 h, 7 d), sampling mode, auto-sync on/off, **Wi-Fi...** (see Wi-Fi page), SCD41 temperature offset (0 to 10 degC in 0.5 steps), **Calibrate CO2 now** (with the date of the last calibration), **New measurement** (with the current run and its start date).
 - **Interactive mode:** any touch starts it for 5 min; every touch restarts the timer.
 
 ### Tap vs double tap
@@ -52,6 +52,8 @@ The double-tap window is 400 ms.
 - A tap on a button or a home plot waits until the 400 ms window has passed. A second tap inside the window means "home", and the single-tap action is never run.
 
 The chip stays awake during the window (no light sleep), because M5Unified's light sleep drops touch data.
+
+These rules are a property of the view (`layout::traits`). Text-entry views (the keyboard) act on touch-down, have no double-tap window, and a double tap does not go home; Cancel is the only way out.
 
 ### CO2 calibration (SCD41)
 
@@ -79,14 +81,14 @@ Every start also runs 2 black/white cycles (`kBootCleanCycles`). For stubborn ma
 
 ## Sync
 
-- **Sync** connects to the phone hotspot, gets NTP time (`pool.ntp.org`, fallback `ptbtime1.ptb.de`), writes the BM8563 (UTC), then turns Wi-Fi off. The timeout is 20 s.
-- The result is shown at the bottom: the correction in seconds, or "Hotspot not found", "Wrong password", "NTP timeout" or "Wi-Fi connect failed".
-- **Auto-sync** (default on): 5 min after boot and then once a day, if the last sync is more than 7 days old, it tries silently for 10 s.
+- **Sync** tries the network saved on the Wi-Fi page first, then the default hotspot (`/config.json` over `secrets.h`). The radio stays on between the two attempts. It gets NTP time (`pool.ntp.org`, fallback `ptbtime1.ptb.de`), writes the BM8563 (UTC), then turns Wi-Fi off. Each attempt (connect plus NTP) is limited to 20 s.
+- The result is shown at the bottom: "Sync ok via <network>" with the correction in seconds, or the reason of the last attempt: "Network not found", "Wrong password", "Connect timeout", "NTP timeout" or "Wi-Fi connect failed". Each attempt is one line in `error.log`.
+- **Auto-sync** (default on): 5 min after boot and then once a day, if the last sync is more than 7 days old, it tries silently, 10 s per network.
 - No sync below 3.7 V on battery, and none during a calibration.
 
 ### config.json
 
-Optional, in the SD card root. It overrides the compiled-in hotspot:
+Optional, in the SD card root. It overrides the compiled-in default hotspot (the saved Wi-Fi page network is still tried first):
 
 ```json
 {
@@ -96,6 +98,23 @@ Optional, in the SD card root. It overrides the compiled-in hotspot:
   }
 }
 ```
+
+## Wi-Fi page and keyboard
+
+- **Wi-Fi page** (Settings, **Wi-Fi...**): shows the networks sync uses, **Scan**, **Enter name** (hidden network), **Forget**, **Up** / **Down** for long lists. The sidebar stays visible; double tap goes home.
+- **Scan:** same rules as a sync (no Wi-Fi below 3.7 V on battery or while calibrating, NVS marker and `error.log` line before the radio starts), async scan for at most 10 s, then Wi-Fi fully off. Equal SSIDs are merged (strongest wins), hidden entries dropped, sorted by signal. Rows are 72 px, 6 per page; signal 0-4 bars, lock = WPA/WEP password, `802.1X` = enterprise (not supported).
+- **Tap a network:** open networks go straight to the connection test, secured ones open the keyboard. **Enter name:** keyboard for the SSID, then for the password (empty = open network).
+- **Connection test:** connect for at most 15 s, show "Connected ..., saved", "Wrong password", "Network not found", "Connect timeout" or "Wi-Fi connect failed", then Wi-Fi off. Only a successful network is saved; then **Sync now** appears.
+- **Storage:** one network in NVS (namespace `kf`, keys `wSsid`, `wPass`), written only when a test succeeds or on Forget. **The password is stored in plain text** (no NVS or flash encryption on this board); anyone with the device and a USB cable can read it.
+
+### Keyboard
+
+- Full screen 960x540 QWERTY, sidebar hidden. Text field on top (prompt, length counter, text with the cursor at the end, **Show/Hide**, default shown), four key rows of 106 px (keys at least 96x106 px).
+- Layers: lowercase, uppercase (Shift = one-shot; a second Shift within 400 ms = Caps Lock), symbols 1 and 2 (**123**, then **#+=**). Together all printable ASCII. Keys **Del**, **space**, **Cancel**, **OK**.
+- Limits: passwords 8 to 63 characters, SSIDs 1 to 32 bytes. **OK** is drawn disabled (thin border, dotted line) outside the range; further characters are ignored.
+- 3 min without a key: closes like Cancel.
+- **Refresh:** entering and leaving is one full GC16. Each key redraws only the changed region (text field; key area on a layer or Shift change; the OK key when it changes state) with `epd_fastest`, which M5GFX 0.2.34 maps to **DU4** (A2 is only reachable through a private M5GFX method). M5GFX's IT8951 driver refreshes the bounding box of what was drawn since the last `display()`, so only that region is pushed. The push does not wait for the waveform; while the panel is busy, further keys are collected and pushed together as soon as it is free. Ghost cleanup: the text field (and the keys, if they changed) are redrawn with GC16 after 8 DU4 updates or after a 1 s pause.
+- **Power:** while the keyboard is open, no light sleep and no panel standby; touch is polled every 2 ms, the rest of the tick (battery, RTC, sampling) runs once per second. The VEML7700 integration becomes a deadline instead of a 130 ms nap; SCD41 reinit, sensor mode changes, calibration and auto-sync wait until the keyboard closes. SD writes wait too, unless a buffer is nearly full (the queue is flushed when the keyboard opens). Every key restarts the 5 min interactive timer.
 
 ## SD log
 
@@ -171,7 +190,7 @@ Data is grouped in **measurement runs**, one per grow batch. Each run has its ow
 ### Sleep strategy
 
 - **Light sleep between wakes.** RAM and PSRAM are kept, and the GT911 touch interrupt (GPIO36) wakes the chip.
-- **E-ink panel:** in standby between interactive refreshes, and powered off (GPIO23) between idle refreshes. Waking from off costs about 800 ms of re-init.
+- **E-ink panel:** in standby between interactive refreshes, and in TCON sleep between idle refreshes. GPIO23 (panel power) stays on: switching it back on browns out the ESP32.
 - **SD card:** written only while the panel is powered. SD and panel share the SPI bus, and an unpowered panel controller loads the bus.
 - **USB-serial chip:** GPIO1 (U0TXD) is kept as an input, so it cannot power the unpowered chip.
 - **Main power hold:** GPIO2 is held through resets, so a crash on battery does not switch the board off.
@@ -218,19 +237,24 @@ lib/kfcore/src/   pure logic, no Arduino (unit tested)
   PowerStateMachine power states, sampling mode, refresh interval (diagram in the header)
   TapClassifier     tap vs double tap
   UsbHeuristic      USB from battery voltage
-  Layout            screen geometry and hit-testing
+  Layout            screen geometry and hit-testing, view traits (gesture rules)
+  Keyboard          on-screen keyboard keys, layers and text rules
+  WifiList          scan list merge/sort, signal bars, sync network order
+  WifiLayout        Wi-Fi page geometry and hit-testing
   ColumnBins        min/max per pixel column
   SampleRing        RAM ring of samples
   RunLog            run folder names and paths, run.txt
   CsvFormat, TimeUtil, CalReminder, BatteryMonitor, Types
 src/
   App               tick loop, wiring
+  AppWifi           Wi-Fi page and keyboard controller
   hw/               power hold, light sleep, debug trace
+  net/WifiLink      Wi-Fi scan, connect, radio off
   power/UsbDetect   heuristic or GPIO3
   sensors/          SCD41, VEML7700
   storage/          SD (log, config, history), NVS settings
   time/             BM8563 clock, Wi-Fi + NTP sync
-  ui/               e-ink power and waveforms, rendering
+  ui/               e-ink power and waveforms, rendering (WifiView, KeyboardView)
 bench/usb_detect/   bench sketch
 test/test_core/     unit tests
 ```
@@ -248,4 +272,5 @@ Everything here builds, and the unit tests compile and link for the ESP32. Nothi
 - **VEML7700:** the reading after 130 ms of light sleep.
 - **Wi-Fi sync:** against a real hotspot, including the disconnect reason for a wrong password.
 - **Timing:** DU vs GC16 timing on this panel.
+- **Wi-Fi page and keyboard:** built, not run on the board yet: scan, connection test results, sync fallback, DU4 region refresh (no artifacts with overlapping updates?), touch-to-character time (target under 300 ms), ghost cleanup interval, key highlight (off by default, `kKbKeyHighlight`).
 - **Unit tests:** not run yet. This machine has no host compiler; run them on the device with `pio test -e m5paper`, or install gcc.

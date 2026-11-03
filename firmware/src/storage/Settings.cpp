@@ -2,6 +2,7 @@
 #include "Settings.h"
 
 #include <Preferences.h>
+#include <stdio.h>
 
 namespace kf {
 
@@ -36,6 +37,10 @@ void Settings::load()
     asc_off_persisted = p.getBool("ascOff", false);
     low_batt_off = p.getBool("lowBatt", false);
     sync_running = p.getBool("syncRun", false);
+    // getString(key, buf, len) logs an error for a missing key; check first.
+    wifi_ssid[0] = wifi_pass[0] = '\0';
+    if (p.isKey("wSsid")) { p.getString("wSsid", wifi_ssid, sizeof(wifi_ssid)); }
+    if (wifi_ssid[0] && p.isKey("wPass")) { p.getString("wPass", wifi_pass, sizeof(wifi_pass)); }
     p.end();
 }
 
@@ -59,6 +64,29 @@ void Settings::save() const
     p.putBool("ascOff", asc_off_persisted);
     p.putBool("lowBatt", low_batt_off);
     p.putBool("syncRun", sync_running);
+    p.end();
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+void Settings::saveWifi(const char* ssid, const char* password)
+{
+    snprintf(wifi_ssid, sizeof(wifi_ssid), "%s", ssid ? ssid : "");
+    snprintf(wifi_pass, sizeof(wifi_pass), "%s", password ? password : "");
+    Preferences p;
+    p.begin("kf", false);
+    p.putString("wSsid", wifi_ssid);
+    p.putString("wPass", wifi_pass);
+    p.end();
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+void Settings::forgetWifi()
+{
+    wifi_ssid[0] = wifi_pass[0] = '\0';
+    Preferences p;
+    p.begin("kf", false);
+    p.remove("wSsid");
+    p.remove("wPass");
     p.end();
 }
 

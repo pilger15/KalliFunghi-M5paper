@@ -110,6 +110,21 @@ constexpr uint32_t kAutoSyncCheckMs = 24UL * 3600 * 1000;
 constexpr int64_t kAutoSyncAgeS = 7LL * 86400;
 constexpr int64_t kSyncWarnAgeS = 30LL * 86400;
 
+// ---- Wi-Fi page and keyboard ----
+constexpr uint32_t kWifiScanTimeoutMs = 10000;
+constexpr uint32_t kWifiTestTimeoutMs = 15000;
+constexpr uint32_t kKbTimeoutMs = 3UL * 60 * 1000;   // no key for 3 min: leave like Cancel
+constexpr uint32_t kKbPollMs = 2;                   // touch poll period while the keyboard is open
+constexpr uint32_t kKbTickMs = 1000;                // rest of the tick (sampling, battery) meanwhile
+// Ghost cleanup of the text field after DU4 updates: after this many updates, or
+// after a pause without keys.
+constexpr int kKbCleanKeys = 8;
+constexpr uint32_t kKbCleanPauseMs = 1000;
+// Key highlight: the pressed key is shown inverted with the character (same update)
+// and restored after kKbHighlightMs, which costs a second refresh per key.
+constexpr bool kKbKeyHighlight = false;
+constexpr uint32_t kKbHighlightMs = 150;
+
 // ---- Calibration reminder ----
 constexpr int64_t kCalIntervalS = 7LL * 86400;
 constexpr int64_t kCalSnoozeS = 24LL * 3600;

@@ -12,11 +12,13 @@
 #include <stdint.h>
 #include "BatteryMonitor.h"
 #include "ColumnBins.h"
+#include "Keyboard.h"
 #include "Layout.h"
 #include "PowerStateMachine.h"
 #include "SampleRing.h"
 #include "TapClassifier.h"
 #include "Types.h"
+#include "WifiLayout.h"
 #include "power/UsbDetect.h"
 #include "sensors/LightSensor.h"
 #include "sensors/Scd41Sensor.h"
@@ -62,6 +64,28 @@ private:
     bool calBoxVisible(int64_t utc) const;
     uint32_t sampleIntervalMs() const;
     void napOrDelay(uint32_t ms);
+    void finishSample(bool scd_ok, const Scd41Sensor::Reading& r, uint32_t now);
+
+    // Wi-Fi page and keyboard (AppWifi.cpp)
+    enum class KbPurpose : uint8_t { Ssid, Password };
+    bool actionableAt(const UiShape& s, int x, int y) const;
+    void actAt(const UiShape& s, int x, int y, uint32_t now);
+    void openWifiPage(uint32_t now);
+    void wifiAct(const wifilayout::Hit& h, uint32_t now);
+    void wifiStatus(const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+    void updateWifiUses();
+    void wifiScan(uint32_t now);
+    void wifiTest(const char* ssid, const char* password, uint32_t now);
+    // Guards shared by scan, test and sync. Returns nullptr if the radio may start,
+    // else the reason for the user.
+    const char* radioBegin(const char* what, uint32_t now);
+    void radioEnd();
+    bool kbOpen() const { return view_ == View::Keyboard; }
+    void openKeyboard(KbPurpose p, uint32_t now);
+    void closeKeyboard(uint32_t now);
+    void keyDown(int x, int y, uint32_t now);
+    void keyboardTick(uint32_t now);
+    void pushKeyboard(uint32_t now);
 
     Clock clock_;
     Settings settings_;
@@ -126,6 +150,33 @@ private:
     uint32_t next_autosync_ms_ = 0;
     bool in_sync_ = false;
     bool sync_reset_ = false;   // last run was reset during Wi-Fi: no auto-sync on battery this run
+
+    // Wi-Fi page
+    WifiPageModel wifi_page_;
+    bool touch_block_ = false;          // ignore touches until all fingers are up (view switched under the finger)
+
+    // Keyboard
+    kb::Keyboard kb_;
+    KbPurpose kb_purpose_ = KbPurpose::Password;
+    bool kb_hidden_ = false;            // hidden-network flow: empty password = open network
+    char kb_ssid_[33] = "";             // network the password is for
+    char kb_prompt_[64] = "";
+    uint32_t kb_last_key_ms_ = 0;
+    uint32_t kb_next_tick_ms_ = 0;
+    uint8_t kb_pending_ = 0;            // kb::Keyboard::Change bits not pushed yet (panel busy)
+    int kb_press_key_ = -1;             // key to show pressed with the next push
+    int kb_hl_key_ = -1;                // key shown pressed now
+    uint32_t kb_hl_until_ = 0;
+    int kb_fast_updates_ = 0;           // DU4 updates of the field since the last cleanup
+    bool kb_keys_ghosted_ = false;      // key area got DU4 updates since the last cleanup
+    uint32_t kb_t_key_ = 0;             // timing trace: touch-down seen
+    bool kb_t_wait_ = false;            // timing trace: waiting for the waveform to end
+
+    // VEML7700 read deferred instead of the 130 ms nap (keyboard open)
+    bool lux_pending_ = false;
+    uint32_t lux_ready_ms_ = 0;
+    bool lux_scd_ok_ = false;
+    Scd41Sensor::Reading lux_r_{};
 
     // Debug counters
     uint32_t wakes_ = 0;
