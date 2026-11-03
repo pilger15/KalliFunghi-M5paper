@@ -107,6 +107,8 @@ private:
     bool shot_pending_ = false;
     uint32_t shot_ready_ms_ = 0;
     int scd_missed_ = 0;
+    uint32_t scd_reinits_ = 0;          // reinits since the last good reading
+    uint32_t scd_reinit_logged_ms_ = 0;
     bool no_data_reported_ = false;   // "no sensor data" is in the error log already
     bool have_latest_ = false;
     Sample latest_;

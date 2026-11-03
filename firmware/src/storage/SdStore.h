@@ -42,11 +42,13 @@ public:
     // Error log /log/error.log (utc_iso,clock,text). event() only queues in RAM, so it is
     // safe at any time (also with no card); the lines are written by the next flush()
     // or flushEvents(), i.e. as soon as a working card is present. Keeps the newest 16.
-    // The caller refreshes the timestamp source once per tick.
-    /* Created by Claude Sonnet 5.5 | Review priority: Medium | Reviewed by: None */
+    // The caller refreshes the timestamp source once per tick and flushes early when
+    // eventsNearlyFull(), so a burst cannot push older lines (e.g. the boot line) out.
+    /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
     void setTime(int64_t utc, bool clock_valid) { now_utc_ = utc; now_valid_ = clock_valid; }
     void event(const char* fmt, ...) __attribute__((format(printf, 2, 3)));
     size_t pendingEvents() const { return ev_count_; }
+    bool eventsNearlyFull() const { return ev_count_ >= kEventSlots - 4; }
     bool flushEvents();
 
     // Fills wifi from /config.json if present ({"wifi":{"ssid":..,"password":..}}).

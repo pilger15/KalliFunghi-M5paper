@@ -26,6 +26,7 @@ const PowerStateMachine::Params kPsmParams{
 constexpr uint32_t kMessageMs = 2UL * 60 * 1000;
 constexpr uint32_t kAutoSyncFirstMs = 5UL * 60 * 1000;
 constexpr uint32_t kMaxSleepMs = 60UL * 60 * 1000;
+constexpr uint32_t kScdReinitLogMs = 60UL * 60 * 1000;   // repeat interval of the "still no data" line
 
 /* Created by Claude Opus 5.5 | Review priority: Low | Reviewed by: None */
 // Signed difference a - b for wrapping millis() values.
@@ -121,6 +122,9 @@ void App::setup()
         settings_.sync_running = false;
         settings_.save();
     }
+    // Write the boot line now: the reset reason must not wait 5 min in the RAM ring,
+    // where another reset or an event burst would lose it.
+    sd_.flushEvents();
 
     ring_storage_ = allocPsram<Sample>(kRingCapacity);
     ring_ = new SampleRing(ring_storage_, ring_storage_ ? kRingCapacity : 0);
@@ -423,12 +427,24 @@ void App::recordSample(bool scd_ok, const Scd41Sensor::Reading& r, bool lux_ok, 
     uint32_t now = millis();
     if (scd_ok) {
         scd_missed_ = 0;
+        if (scd_reinits_ > 0) {
+            sd_.event("scd41 data back after %lu reinits", (unsigned long)scd_reinits_);
+            scd_reinits_ = 0;
+        }
     } else if (++scd_missed_ >= kScdMissedIntervalsReinit) {
         // No data for 3 intervals (unplugged, brown-out, I2C error): re-init, which also
         // re-applies ASC off and the offset a brown-out would have lost.
+        // Logs the first reinit, then a count once per hour: with no sensor, Fast mode
+        // reinits every 15 s and would flood the error log.
         scd_missed_ = 0;
-        sd_.event("scd41 gave no data for %d intervals, reinit (present %d)", kScdMissedIntervalsReinit,
-                  (int)scd_.present());
+        if (scd_reinits_++ == 0) {
+            sd_.event("scd41 gave no data for %d intervals, reinit (present %d)", kScdMissedIntervalsReinit,
+                      (int)scd_.present());
+            scd_reinit_logged_ms_ = now;
+        } else if (diff(now, scd_reinit_logged_ms_) >= (int32_t)kScdReinitLogMs) {
+            sd_.event("scd41 still no data, %lu reinits so far", (unsigned long)scd_reinits_);
+            scd_reinit_logged_ms_ = now;
+        }
         if (!calibrating_) { scd_.reinit(now); }
         next_sample_ms_ = now + sampleIntervalMs();
     }
@@ -738,7 +754,8 @@ void App::flush(uint32_t now, bool force)
     if (sd_.queued() == 0 && sd_.pendingEvents() == 0) { return; }
     // After a failed write, retry sooner so a re-inserted card is picked up quickly.
     uint32_t interval = sd_.problem() ? kSdRetryMs : kSdFlushMs;
-    bool due = force || diff(now, last_flush_ms_) >= (int32_t)interval || sd_.bufferNearlyFull();
+    bool due = force || diff(now, last_flush_ms_) >= (int32_t)interval || sd_.bufferNearlyFull()
+               || sd_.eventsNearlyFull();
     if (!due) { return; }
     bool ok = sd_.flush();
     KF_TRACE("flush %d, %u rows left, problem %d", (int)ok, (unsigned)sd_.queued(), (int)sd_.problem());
