@@ -70,7 +70,7 @@ The Wi-Fi hotspot sync of earlier firmware is switched off in this version.
 Choose one of three ways. The page needs Chrome or Edge (see "Browsers").
 
 1. **Installed app (recommended for phones):** open https://pilger15.github.io/KalliFunghi-M5paper/ once while online, then choose "Install app" or "Add to home screen" in the browser menu. After that it works without internet and updates itself the next time you are online.
-2. **Local copy, no internet at all:** copy the file `KalliFunghi.html` (from the `web` folder) to the phone or PC, for example as an email attachment, and open it in Chrome or Edge. Downloaded data is stored per place you open it from: opening the file from a different folder or app starts with an empty data list.
+2. **Local copy, no internet at all:** copy the file **`KalliFunghi.html`** (from the `web` folder) to the phone or PC, for example as an email attachment, and open it in Chrome or Edge. This single file is the one to send: `index.html` alone does not work and says "This page is incomplete". Downloaded data is stored per place you open it from: opening the file from a different folder or app starts with an empty data list.
 3. **On the PC:** double-click `start-local.cmd` in the `web` folder. It opens the page at http://localhost:8765 in the browser. Keep the window open while you use the page.
 
 **Browsers:** Chrome and Edge on Android, Windows, macOS and ChromeOS. On Linux only Chrome with the experimental web platform features flag. Firefox and Safari do not support Bluetooth pages; on an iPhone use a Bluetooth browser such as Bluefy. A page opened inside another app (an email or chat preview) usually has no Bluetooth: use "Open in Chrome". If Bluetooth is missing, the page says why at the top.

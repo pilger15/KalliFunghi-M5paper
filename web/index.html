@@ -135,6 +135,12 @@ footer ul { margin: 4px 0; padding-left: 18px; }
     </div>
   </header>
 
+  <section id="missing" hidden style="border-color: var(--critical)">
+    <b>This page is incomplete.</b> This file needs the rest of the <code>web</code> folder
+    (<code>app.js</code>, <code>ble.js</code>, <code>store.js</code>, <code>vendor/</code>).
+    To copy a single file to a phone or send it by email, use <b>KalliFunghi.html</b> instead.
+  </section>
+
   <section id="banner">
     <b>Bluetooth can't be used here.</b> <span id="banner-hint"></span>
     Charts of logs already downloaded in this browser still work below.
@@ -207,5 +213,12 @@ footer ul { margin: 4px 0; padding-left: 18px; }
 <script src="ble.js"></script>
 <script src="store.js"></script>
 <script src="app.js"></script>
+<script>
+// A lone index.html (copied without its folder) cannot load the scripts above.
+if (typeof uPlot === 'undefined' || typeof KfDevice === 'undefined' || typeof Store === 'undefined'
+    || typeof drawCharts === 'undefined') {
+  document.getElementById('missing').hidden = false;
+}
+</script>
 </body>
 </html>
