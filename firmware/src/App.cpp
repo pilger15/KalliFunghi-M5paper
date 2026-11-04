@@ -704,6 +704,16 @@ void App::bleTick(uint32_t now)
         if (diff(now, next_ble_ms_) < 0) { return; }
         next_ble_ms_ = now + kBlePeriodMs;
         if (!psm_.usb() && battery_.mv() < kBatteryBleMinMv) { return; }   // lower peaks than Wi-Fi
+        // NimBLE leaks 48 B per window (config.h). Restart to get it back, but only on USB:
+        // on battery a reset relies on the unverified GPIO2 power hold. On battery the
+        // windows stop at the floor until USB comes.
+        uint32_t heap = ESP.getFreeHeap();
+        if (psm_.usb() && heap < kBleRestartHeapBytes) { plannedRestart(heap); }
+        if (heap < kBleFloorHeapBytes) {
+            if (!ble_heap_reported_) { sd_.event("bluetooth paused: free heap %u B, waiting for usb", (unsigned)heap); }
+            ble_heap_reported_ = true;
+            return;
+        }
         startBle(now);
         return;
     }
@@ -746,6 +756,19 @@ void App::bleTick(uint32_t now)
     case BleSync::End::Failed: stopBle("Bluetooth off: error", now); break;
     default: break;
     }
+}
+
+/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Restart to recover heap lost by NimBLE. Rows and events are written first; the run,
+// settings and clock live in NVS and the RTC, the plot ring is reloaded from the card.
+void App::plannedRestart(uint32_t heap)
+{
+    sd_.event("planned restart: free heap %u B after bluetooth windows", (unsigned)heap);
+    sd_.flush();
+    sd_.flushEvents();
+    KF_TRACE("planned restart, heap %u", (unsigned)heap);
+    delay(50);
+    esp_restart();
 }
 
 /* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */

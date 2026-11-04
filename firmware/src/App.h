@@ -56,6 +56,7 @@ private:
     void stopBle(const char* why, uint32_t now);
     void bleTick(uint32_t now);
     void applyBleTime(int64_t utc_ms, uint32_t rx_ms);
+    void plannedRestart(uint32_t heap);
     bleproto::StatusInfo bleStatus() const;
     bool startRun(uint32_t now, bool automatic);
     RunInfo runFromSettings() const;
@@ -141,6 +142,7 @@ private:
     uint32_t next_ble_ms_ = 0;  // start of the next advertising window
     bool usb_window_ = false;   // the current window has no limit (started on USB)
     bool ble_failed_reported_ = false;
+    bool ble_heap_reported_ = false;   // "paused for low heap" is in error.log already
     char ble_note_[48] = "";    // last result in the Bluetooth box ("Time set, ...")
 
     // Debug counters

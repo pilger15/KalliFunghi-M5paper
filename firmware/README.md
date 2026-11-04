@@ -20,6 +20,7 @@ The hotspot name and password are not in git. Copy `lib/kfcore/src/secrets.examp
 | `m5paper_debug` | Firmware plus power trace on Grove port C (see Debug) |
 | `bench_usb`, `bench_usb_sleep` | USB-detection bench sketch (`bench/usb_detect`) |
 | `epd_clean` | One-off e-ink cleaning: sets VCOM, runs INIT and black/white cycles (`bench/epd_clean`) |
+| `ble_leak` | Free heap across repeated NimBLE start/stop cycles, trace over USB (`bench/ble_leak`) |
 | `native` | Unit tests of `lib/kfcore` on the PC (needs gcc/g++ on PATH) |
 
 ```bash
@@ -113,6 +114,7 @@ Clock sync, status, live samples and SD download for the static Web Bluetooth pa
   - A window without a connection is silent: no redraw, no SD or NVS write. Each window is one `NimBLEDevice::init` / `deinit(true)` (controller off and stack RAM freed in between, so the chip can light-sleep).
 - **Connected:** the radio stays on until the disconnect, 10 min without page activity (keepalive), the page's "end", **Stop** on the device, or below 3.55 V on battery. A connected page counts as interactive (`psm_.onTouch`); the bottom strip shows "connected", the file being sent and the last result, with **Stop**. Connect, time sync and session end go to `error.log`. One connection at a time.
 - **Power:** no light sleep while Bluetooth is on: the prebuilt controller uses the main crystal as its sleep clock (`CONFIG_BTDM_CTRL_LPCLK_SEL_MAIN_XTAL`), so light sleep would stop it (derived from the sdkconfig, not measured). The loop polls with `delay()` (1 ms while sending, 20 ms otherwise). On battery the low-battery count and the USB heuristic pause while the radio is on (the voltage sags under load). Cost estimate: 30 s at ~35 mA every 5 min is about +3 mA average, not measured.
+- **Heap leak in NimBLE:** every `NimBLEDevice::init` / `deinit(true)` loses 48 B of internal heap. Bench `ble_leak` (20 fast cycles per stage): bare init/deinit −48.0 B/cycle, with the GATT setup −48.4, the firmware's `BleSync` −48.0, the ESP-IDF controller alone 0. Same in NimBLE-Arduino 2.3.9, 2.5.1 and 2.5.2, so it is in the host / port layer, not in this code; not reported upstream yet. Long run with forced battery: −48 B per 5 min window (185 388, 185 340, 185 292 B). That is about 14 KB per day on battery; on USB the radio stays on and nothing is lost. Mitigation: before a window, below 150 KB free (`kBleRestartHeapBytes`, about 2.5 battery days) the device restarts, but only on USB power (writes rows and events first; run, settings and clock survive in NVS and the RTC). On battery it never restarts (the GPIO2 power hold through a reset is unverified), and below 90 KB (`kBleFloorHeapBytes`, about 7 battery days without USB) the windows pause until USB comes, logged once in `error.log`. The restart and pause branches are not tested on the board.
 - **Security:** no pairing or bonding (decided): anyone in range can connect during a window, set the clock and download the logs. The data are not secret; one connection at a time.
 - **Fast while connected:** off by default; the page's checkbox switches the effective mode to Fast (not saved, not during a calibration) and back at the end.
 

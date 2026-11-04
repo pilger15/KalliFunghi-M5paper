@@ -131,6 +131,11 @@ constexpr uint32_t kBlePeriodMs = 5UL * 60 * 1000;
 constexpr uint32_t kBleFirstWindowMs = 10UL * 1000;     // after boot (not after a brown-out)
 constexpr uint32_t kBleUsbRestartMs = 2000;             // on USB: gap before advertising again
 constexpr uint32_t kBleIdleMs = 10UL * 60 * 1000;       // connected, no page activity
+// NimBLE's init/deinit loses 48 B of internal heap per window (bench/ble_leak: the host,
+// not the controller; NimBLE-Arduino 2.3.9 to 2.5.2), ~14 KB per day on battery. Free
+// internal heap with the radio off is ~185 KB after boot.
+constexpr uint32_t kBleRestartHeapBytes = 150UL * 1024;  // below: planned restart, on USB only
+constexpr uint32_t kBleFloorHeapBytes = 90UL * 1024;     // below: no windows on battery
 constexpr uint32_t kBleStallMs = 15000;                  // READ without an ACK: aborted
 constexpr int kBatteryBleMinMv = 3600;                   // no Bluetooth below this on battery
 
