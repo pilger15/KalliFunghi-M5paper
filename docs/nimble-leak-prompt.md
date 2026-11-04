@@ -11,7 +11,7 @@ Recommended: **Opus 5.5, effort high** (hard debugging inside a third-party BLE 
 Find the root cause of a heap leak in NimBLE's init/deinit cycle and decide on a fix. Read `firmware/README.md` (section "Bluetooth sync", bullet "Heap leak in NimBLE"), `firmware/bench/ble_leak/main.cpp`, `firmware/src/ble/BleSync.*`, the BLE part of `firmware/src/App.cpp` (`bleTick`, `plannedRestart`) and the env `ble_leak` in `firmware/platformio.ini`. Start in plan mode: propose the test matrix, the boards and the tools, and wait for my OK.
 
 ### What is known (2026-11-04)
-- The KalliFunghi firmware (M5Paper, ESP32-D0WDQ6-V3 with PSRAM, Arduino core 3.3 on platform `espressif32 @ 8.0.0`, ESP-IDF 5.5 prebuilt libs, Bluedroid controller config `CONFIG_BTDM_CTRL_MODE_BTDM`) starts and stops NimBLE once per advertising window (30 s every 5 min on battery), to let the chip light-sleep in between.
+- The KalliFunghi firmware (M5Paper, ESP32-D0WDQ6-V3 with PSRAM, Arduino core 3.3 on platform `espressif32 @ 8.0.0`, ESP-IDF 5.5 prebuilt libs, Bluedroid controller config `CONFIG_BTDM_CTRL_MODE_BTDM`) starts and stops NimBLE once per Bluetooth session (a tap on Sync opens 2 min; on USB it advertises all the time), to let the chip light-sleep in between. Earlier builds advertised 30 s every 5 min on battery, which is where the leak became visible (about 14 KB per day).
 - Each `NimBLEDevice::init()` + `NimBLEDevice::deinit(true)` loses **48 B of internal heap**, always the same amount. Bench `ble_leak`, 20 cycles per stage:
   - A bare init/deinit: −48.0 B/cycle
   - B with server, service, 5 characteristics, advertising: −48.4 B/cycle
@@ -33,4 +33,4 @@ Find the root cause of a heap leak in NimBLE's init/deinit cycle and decide on a
 - No host gcc on this machine: bench results come from the boards. PlatformIO is at `~/.platformio/penv/Scripts/pio.exe`; KiCad's Python is the only Python.
 - Work in your own branch; commit when I approve; don't push or merge into `main` without asking.
 - Follow my global CLAUDE.md code-tagging rules. BLE, heap and power code are review priority High.
-- Deliverables: a results table (board, core, NimBLE version, PSRAM, B/cycle) in `firmware/README.md` or a new `docs/nimble-leak.md`, the root cause with the allocating call, the chosen fix with its measured effect on the KalliFunghi firmware (forced-battery long run, `m5paper_usbtrace_batt`, at least 12 windows with heap per window), and a list of what you could not verify.
+- Deliverables: a results table (board, core, NimBLE version, PSRAM, B/cycle) in `firmware/README.md` or a new `docs/nimble-leak.md`, the root cause with the allocating call, the chosen fix with its measured effect on the KalliFunghi firmware (at least 12 Bluetooth sessions with the heap after each, e.g. repeated Sync taps or a test build that starts sessions periodically), and a list of what you could not verify.
