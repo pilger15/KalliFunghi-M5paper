@@ -60,7 +60,7 @@ constexpr int kCalBoxH = 80;
 Rect plotArea(bool cal_box);
 Rect homeTile(int i, bool cal_box);
 Rect sidebar();
-Rect syncButton();          // only with kWifiSync
+Rect syncButton();          // starts Bluetooth
 Rect settingsButton();
 Rect calBox();
 Rect calConfirmButton();

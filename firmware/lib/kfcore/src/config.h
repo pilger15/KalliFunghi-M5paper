@@ -100,8 +100,8 @@ constexpr uint64_t kSdMinFreeBytes = 1024ULL * 1024;
 // ---- Time and sync ----
 constexpr const char* kTimezone = "CET-1CEST,M3.5.0,M10.5.0/3";
 /* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
-// Wi-Fi hotspot sync (Sync button, auto-sync, its Settings row). Off: the clock is set
-// over Bluetooth only. The code stays and comes back with true.
+// Wi-Fi hotspot auto-sync and its Settings row. The Sync button always starts Bluetooth.
+// Off: the clock is set over Bluetooth only. The code stays and comes back with true.
 constexpr bool kWifiSync = false;
 // Hotspot defaults (kDefaultSsid, kDefaultPassword) come from secrets.h, which is
 // not in git. Without it the build uses secrets.example.h (placeholders) and the
@@ -123,19 +123,19 @@ constexpr const char* kBleTimeUuid = "4b460002-6b61-6c6c-6966-756e67686900";
 constexpr const char* kBleLiveUuid = "4b460003-6b61-6c6c-6966-756e67686900";
 constexpr const char* kBleFilesUuid = "4b460004-6b61-6c6c-6966-756e67686900";
 constexpr const char* kBleControlUuid = "4b460005-6b61-6c6c-6966-756e67686900";
-// Advertising: always on USB; on battery a window of kBleWindowMs every kBlePeriodMs (the
-// radio blocks light sleep, ~30-40 mA while on). A connection holds the radio until the
-// disconnect or kBleIdleMs without page activity.
-constexpr uint32_t kBleWindowMs = 30UL * 1000;
-constexpr uint32_t kBlePeriodMs = 5UL * 60 * 1000;
-constexpr uint32_t kBleFirstWindowMs = 10UL * 1000;     // after boot (not after a brown-out)
+// Advertising: a tap on Sync opens a window of kBleUserWindowMs; on USB always on. On
+// battery the radio is otherwise off (it blocks light sleep, ~30-40 mA while on). A
+// connection holds the radio until the disconnect or kBleIdleMs without page activity.
+constexpr uint32_t kBleUserWindowMs = 2UL * 60 * 1000;
+constexpr uint32_t kBleFirstWindowMs = 10UL * 1000;     // on USB, after boot (not after a brown-out)
+constexpr uint32_t kBleBrownoutDelayMs = 5UL * 60 * 1000;
 constexpr uint32_t kBleUsbRestartMs = 2000;             // on USB: gap before advertising again
 constexpr uint32_t kBleIdleMs = 10UL * 60 * 1000;       // connected, no page activity
-// NimBLE's init/deinit loses 48 B of internal heap per window (bench/ble_leak: the host,
-// not the controller; NimBLE-Arduino 2.3.9 to 2.5.2), ~14 KB per day on battery. Free
-// internal heap with the radio off is ~185 KB after boot.
+// NimBLE's init/deinit loses 48 B of internal heap per session (bench/ble_leak: the host,
+// not the controller; NimBLE-Arduino 2.3.9 to 2.5.2). Free internal heap with the radio
+// off is ~185 KB after boot.
 constexpr uint32_t kBleRestartHeapBytes = 150UL * 1024;  // below: planned restart, on USB only
-constexpr uint32_t kBleFloorHeapBytes = 90UL * 1024;     // below: no windows on battery
+constexpr uint32_t kBleFloorHeapBytes = 90UL * 1024;     // below: no Bluetooth on battery
 constexpr uint32_t kBleStallMs = 15000;                  // READ without an ACK: aborted
 constexpr int kBatteryBleMinMv = 3600;                   // no Bluetooth below this on battery
 

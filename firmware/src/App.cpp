@@ -176,9 +176,9 @@ void App::setup()
     next_refresh_ms_ = now;
     last_flush_ms_ = now;
     next_autosync_ms_ = now + kAutoSyncFirstMs;
-    // First Bluetooth window soon after boot, but not right after a brown-out: radio start
-    // peaks on a weak cell would otherwise make a reset loop.
-    next_ble_ms_ = now + (esp_reset_reason() == ESP_RST_BROWNOUT ? kBlePeriodMs : kBleFirstWindowMs);
+    // On USB the radio advertises all the time: first 10 s after boot, but not right after a
+    // brown-out (radio start peaks on a weak supply would otherwise make a reset loop).
+    next_ble_ms_ = now + (esp_reset_reason() == ESP_RST_BROWNOUT ? kBleBrownoutDelayMs : kBleFirstWindowMs);
     markDirty(true, now);
     KF_TRACE("boot ok, utc %lld, valid %d, scd %d, veml %d, sd %d", (long long)rtc_utc_,
              (int)clockValid(), (int)scd_.present(), (int)light_.present(), (int)sd_.mounted());
@@ -275,8 +275,17 @@ void App::act(const Hit& h, uint32_t now)
         plot_ = h.index;
         markDirty(true, now);
         break;
-    case Target::Sync:   // only with kWifiSync
-        if (!ble_.on()) { runSync(true, now); }
+    case Target::Sync:
+        // Bluetooth for the page. Already on (USB, or a second tap): just show its box.
+        if (!ble_.on()) { startBle(now, true); }
+        if (ble_.on()) {
+            ble_user_ = true;
+            ask_ = Ask::Ble;
+            cal_manual_open_ = false;
+            message_[0] = '\0';
+        }
+        view_ = View::Home;
+        markDirty(true, now);
         break;
     case Target::Settings:
         view_ = (view_ == View::Settings) ? View::Home : View::Settings;
@@ -658,24 +667,42 @@ void App::applySync(int64_t utc, int64_t correction_s, bool was_valid, uint32_t 
     sd_.logSync(utc, correction_s);
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
-// One advertising window: unlimited on USB, kBleWindowMs on battery. Silent: no
-// screen, SD or NVS activity per window (that would be every 5 min).
-bool App::startBle(uint32_t now)
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Starts advertising: user = tap on Sync (kBleUserWindowMs, or no limit on USB), else
+// the silent always-on advertising on USB. Same guards for both; a tap reports why not.
+bool App::startBle(uint32_t now, bool user)
 {
+    if (!psm_.usb() && battery_.mv() < kBatteryBleMinMv) {   // lower peaks than Wi-Fi
+        if (user) { setMessage("Battery too low for Bluetooth, charge first", now, kMessageMs); }
+        return false;
+    }
+    // NimBLE leaks 48 B per session (config.h). Restart to get it back, but only on USB:
+    // on battery a reset relies on the unverified GPIO2 power hold. On battery Bluetooth
+    // stops at the floor until USB comes.
+    uint32_t heap = ESP.getFreeHeap();
+    if (psm_.usb() && heap < kBleRestartHeapBytes) { plannedRestart(heap); }
+    if (heap < kBleFloorHeapBytes) {
+        if (!ble_heap_reported_) { sd_.event("bluetooth paused: free heap %u B, waiting for usb", (unsigned)heap); }
+        ble_heap_reported_ = true;
+        if (user) { setMessage("Bluetooth needs a restart: connect USB", now, kMessageMs); }
+        return false;
+    }
     usb_window_ = psm_.usb();
-    if (!ble_.start(now, usb_window_ ? 0 : kBleWindowMs)) {
-        if (!ble_failed_reported_) { sd_.event("bluetooth start failed, heap %u", (unsigned)ESP.getFreeHeap()); }
+    if (!ble_.start(now, usb_window_ ? 0 : kBleUserWindowMs)) {
+        if (!ble_failed_reported_) { sd_.event("bluetooth start failed, heap %u", (unsigned)heap); }
         ble_failed_reported_ = true;
+        if (user) { setMessage("Bluetooth start failed", now, kMessageMs); }
         return false;
     }
     ble_failed_reported_ = false;
+    ble_user_ = user;
+    ble_was_connected_ = false;
     return true;
 }
 
-/* Created by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
-// Ends the session and plans the next window. Only a session with a page connected
-// leaves a message and an error.log line.
+/* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
+// Ends the session. A session the user started or a page used leaves a message; only a
+// used one an error.log line. On USB the silent advertising starts again shortly.
 void App::stopBle(const char* why, uint32_t now)
 {
     if (!ble_.on()) { return; }
@@ -686,51 +713,42 @@ void App::stopBle(const char* why, uint32_t now)
         ble_fast_ = false;
         psm_.setUserMode(settings_.mode);
     }
-    // On USB advertise again right away; on battery the period counts from the last start.
-    if (psm_.usb()) { next_ble_ms_ = now + kBleUsbRestartMs; }
+    next_ble_ms_ = now + kBleUsbRestartMs;
     if (ask_ == Ask::Ble) { ask_ = Ask::None; }
-    if (had) {
-        sd_.event("bluetooth session end: %s, last transfer %lu B/s", why, (unsigned long)rate);
-        // The result of the session stays readable in the strip.
-        setMessage(ble_note_[0] ? ble_note_ : why, now, kMessageMs);
-    }
+    if (had) { sd_.event("bluetooth session end: %s, last transfer %lu B/s", why, (unsigned long)rate); }
+    // The result of the session stays readable in the strip.
+    if (had || ble_user_) { setMessage(ble_note_[0] ? ble_note_ : why, now, kMessageMs); }
+    else { markDirty(false, now); }
     ble_note_[0] = '\0';
+    ble_user_ = false;
 }
 
 /* Edited by Claude Opus 5.5 | Review priority: High | Reviewed by: None */
 void App::bleTick(uint32_t now)
 {
     if (!ble_.on()) {
-        if (diff(now, next_ble_ms_) < 0) { return; }
-        next_ble_ms_ = now + kBlePeriodMs;
-        if (!psm_.usb() && battery_.mv() < kBatteryBleMinMv) { return; }   // lower peaks than Wi-Fi
-        // NimBLE leaks 48 B per window (config.h). Restart to get it back, but only on USB:
-        // on battery a reset relies on the unverified GPIO2 power hold. On battery the
-        // windows stop at the floor until USB comes.
-        uint32_t heap = ESP.getFreeHeap();
-        if (psm_.usb() && heap < kBleRestartHeapBytes) { plannedRestart(heap); }
-        if (heap < kBleFloorHeapBytes) {
-            if (!ble_heap_reported_) { sd_.event("bluetooth paused: free heap %u B, waiting for usb", (unsigned)heap); }
-            ble_heap_reported_ = true;
-            return;
-        }
-        startBle(now);
+        // Only on USB the radio comes on by itself; on battery only after a tap on Sync.
+        if (!psm_.usb() || diff(now, next_ble_ms_) < 0) { return; }
+        next_ble_ms_ = now + kBleUsbRestartMs;
+        startBle(now, false);
         return;
     }
-    // USB went away while advertising without a limit: back to battery windows.
+    // USB went away while advertising without a limit: off, unless a page is connected
+    // (then the disconnect or the idle timeout ends it). A tap on Sync starts a 2 min one.
     if (usb_window_ && !psm_.usb() && !ble_.connected()) {
-        stopBle("usb gone", now);
-        next_ble_ms_ = now + kBlePeriodMs;
+        stopBle("Bluetooth off: USB unplugged", now);
         return;
     }
-    if (ble_.connected()) {
-        psm_.onTouch(now);   // a connected page counts as interactive
+    // The box is up while the user's window or a connection lasts: keep the screen live.
+    if (ble_user_ || ble_.connected()) { psm_.onTouch(now); }
+    if (ble_.connected() && !ble_was_connected_) {
+        ble_was_connected_ = true;
+        sd_.event("bluetooth: page connected");
         if (ask_ == Ask::None) {
             ask_ = Ask::Ble;
             message_[0] = '\0';
-            sd_.event("bluetooth: page connected");
-            markDirty(false, now);
         }
+        markDirty(false, now);
     }
     ble_.setStatus(bleStatus(), rtc_utc_, rtc_ms_);
     ble_.tick(now, sd_);
@@ -749,7 +767,7 @@ void App::bleTick(uint32_t now)
     if (ble_.takeChanged() && ask_ == Ask::Ble) { markDirty(false, now); }
 
     switch (ble_.ended()) {
-    case BleSync::End::Timeout: stopBle("no connection", now); break;
+    case BleSync::End::Timeout: stopBle("Bluetooth off: no connection", now); break;
     case BleSync::End::Disconnected: stopBle("Bluetooth off: disconnected", now); break;
     case BleSync::End::Idle: stopBle("Bluetooth off: page idle 10 min", now); break;
     case BleSync::End::ByPage: stopBle("Bluetooth off: closed by the page", now); break;
@@ -992,6 +1010,7 @@ void App::buildModel(UiModel& m, uint32_t now)
     case BleSync::State::Sending: m.ble = BleUi::Sending; break;
     default: m.ble = BleUi::Off; break;
     }
+    m.ble_left_min = (ble_.windowLeftS(now) + 59) / 60;
     if (m.ble == BleUi::Sending) {
         snprintf(m.ble_file, sizeof(m.ble_file), "%s", ble_.fileName());
         m.ble_pct = ble_.filePercent() / 10 * 10;   // 10 % steps: fewer redraws

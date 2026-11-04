@@ -11,12 +11,12 @@ KalliFunghi logs CO2, temperature, humidity and light in your grow box, shows th
 
 1. Insert the SD card and plug the sensor cable into **Port A**.
 2. Switch the device on: press the side button for about 2 s. The screen flashes black and white a few times, then shows the home screen.
-3. Set the clock: open the KalliFunghi Sync page on your phone or PC, press **Connect** and then **Sync time** (see "Syncing the clock"). The clock is set when the page and the device show "Time set".
+3. Set the clock: tap **Sync** in the sidebar, open the KalliFunghi Sync page on your phone or PC, press **Connect** and then **Sync time** (see "Syncing the clock"). The clock is set when the page and the device show "Time set".
 4. Place the device in the grow box, away from lamps and heaters. The first values appear after about a minute.
 
 ## The screen
 
-Four plots on the left (CO2, temperature, humidity, light), the sidebar with status and the **Settings** button on the right. The online version of this guide shows a picture of the layout.
+Four plots on the left (CO2, temperature, humidity, light), the sidebar with status and the **Sync** and **Settings** buttons on the right. The online version of this guide shows a picture of the layout.
 
 The home screen shows the last 6 h of each value (change the range in Settings): the current value large, plus the lowest and highest value in that time. The sidebar always shows the time and date, battery, mode and how long ago the clock was synced. On the home screen it also shows how long ago the CO2 sensor was calibrated ("CO2 cal 12d", or "never") and the current measurement with its day ("Run 4, day 12"). Marks appear there only when something needs attention (see Troubleshooting).
 
@@ -27,6 +27,7 @@ The home screen shows the last 6 h of each value (change the range in Settings):
 | Any touch | The screen updates more often for 5 min. Each further touch restarts the 5 min. |
 | Tap a plot | Shows that plot full screen. |
 | Double tap anywhere | Back to the home screen, from any page. |
+| Tap **Sync** | Switches Bluetooth on for 2 min, so the KalliFunghi Sync page can connect. |
 | Tap **Settings** | Opens the settings; tap it again to leave. |
 
 Buttons react after about half a second: the device first waits to see whether a second tap follows. E-ink needs another moment to redraw, so wait for the screen to change before tapping again.
@@ -50,16 +51,17 @@ On USB power the device switches to full speed by itself and shows a plug symbol
 
 Sync about once a month; the clock drifts roughly 1 min per month. Summer and winter time switch automatically. The clock is set over Bluetooth with the KalliFunghi Sync page; no internet and no password are needed, and the same page downloads and plots the data.
 
-**When the device can be found:** on USB power always. On battery it shows up for 30 s every 5 minutes (this saves battery), so after pressing Connect it can take up to 5 min until "KalliFunghi" appears in the list. Nothing needs to be tapped on the device.
+**When the device can be found:** after a tap on **Sync** for 2 minutes (Bluetooth costs a lot of battery, so it is off otherwise). On USB power it can always be found.
 
-1. Open the **KalliFunghi Sync** page (see "Opening the page") and press **Connect**. Choose "KalliFunghi" in the browser's list. If it is not listed, close the list and try again a little later.
-2. The page shows the device time and how far it is off from your phone or PC. Press **Sync time**. Both show "Time set" with the correction.
-3. Optional: download the data (see "Data and battery") and look at the charts.
-4. Press **Disconnect** or close the page. **Stop** on the device ends the connection at once.
+1. Tap **Sync** on the device. The bottom of the screen shows "Bluetooth on" and the minutes left.
+2. Open the **KalliFunghi Sync** page (see "Opening the page") and press **Connect**. Choose "KalliFunghi" in the browser's list. The device then shows "connected" and stays on as long as the page is open.
+3. The page shows the device time and how far it is off from your phone or PC. Press **Sync time**. Both show "Time set" with the correction.
+4. Optional: download the data (see "Data and battery") and look at the charts.
+5. Press **Disconnect** or close the page; Bluetooth then switches off. **Stop** on the device ends it at once.
 
 While a page is connected, the bottom of the device's screen says so; the device stays awake and new readings appear live in the charts. After 10 min without using the page it disconnects. "Fast samples while connected" switches to 5 s readings until you disconnect.
 
-Only one phone or PC can be connected at a time. There is no pairing: anyone nearby with the page can connect while the device is visible.
+Only one phone or PC can be connected at a time. There is no pairing: anyone nearby with the page can connect during the 2 minutes after a tap on Sync (or while on USB power).
 
 "! Clock" in the sidebar means the clock was never synced or the last sync is older than 30 days. Readings taken before the first sync are still saved, in a separate file, and shown in the right place once the clock is set.
 
@@ -127,7 +129,7 @@ The page keeps the downloaded data in the browser, so the **Charts** (CO2, tempe
 
 | Symptom | What to do |
 | --- | --- |
-| KalliFunghi not in the page's device list | On battery the device is visible 30 s every 5 min: try again within 5 min, or plug in USB. Turn on Bluetooth on the phone or PC; on Android, location may need to be on for Bluetooth scanning. Below about 3.6 V the device stays invisible: charge it. |
+| KalliFunghi not in the page's device list | Tap **Sync** on the device first; Bluetooth stays on for 2 min. Turn on Bluetooth on the phone or PC; on Android, location may need to be on for Bluetooth scanning. Below about 3.6 V the device stays invisible: charge it. |
 | Page says "Bluetooth can't be used here" | Follow the reason shown there; usually: use Chrome or Edge, open the page in Chrome instead of an app preview, or use the https address or `localhost` (see "Opening the page"). |
 | Charts empty after opening the page another way | The downloaded data belongs to the address or file location it was downloaded in. Use the same way each time, or download again. |
 | "! Clock" in the sidebar | Sync the clock. |

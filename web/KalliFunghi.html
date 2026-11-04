@@ -151,7 +151,7 @@ footer ul { margin: 4px 0; padding-left: 18px; }
 
   <section>
     <h2>Device</h2>
-    <p class="muted" id="hint">Press Connect. On USB power the device is always visible; on battery it shows up for 30 s every 5 minutes, so if KalliFunghi is not in the list, wait a moment and try again.</p>
+    <p class="muted" id="hint">On the device tap <b>Sync</b> (Bluetooth stays on for 2 minutes), then press Connect here. On USB power the device is always visible.</p>
     <div class="status-grid" id="status"></div>
     <div class="row">
       <button id="sync" disabled>Sync time</button>
@@ -672,14 +672,14 @@ async function connect() {
     await refreshList();
     if (status && status.run_dir) selectRun(status.run_dir);
   } catch (e) {
-    if (e.name === 'NotFoundError') log('No device chosen. On battery the device is visible 30 s every 5 min: try again shortly.');
+    if (e.name === 'NotFoundError') log('No device chosen. Tap Sync on the device first (on USB power it is always visible).');
     else log('Connect failed: ' + e.message, 'bad');
     setConnected(dev.connected);
   }
 }
 
 dev.addEventListener('disconnected', () => {
-  log('Disconnected. Connect again when the device is visible (always on USB, every 5 min on battery).');
+  log('Disconnected. To connect again, tap Sync on the device (on USB power it is always visible).');
   setConnected(false);
 });
 

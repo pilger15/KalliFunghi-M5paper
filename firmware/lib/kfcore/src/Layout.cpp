@@ -60,7 +60,7 @@ Rect newRunButton() { return mk(kBtnX0, kRowY0 + 5 * kRowPitch, 560, kRowH); }
 Hit hitTest(const UiShape& ui, int x, int y)
 {
     Hit h;
-    if (kWifiSync && syncButton().contains(x, y)) { h.target = Target::Sync; return h; }
+    if (syncButton().contains(x, y)) { h.target = Target::Sync; return h; }
     if (settingsButton().contains(x, y)) { h.target = Target::Settings; return h; }
     if (sidebar().contains(x, y)) { return h; }
 

@@ -125,14 +125,14 @@ async function connect() {
     await refreshList();
     if (status && status.run_dir) selectRun(status.run_dir);
   } catch (e) {
-    if (e.name === 'NotFoundError') log('No device chosen. On battery the device is visible 30 s every 5 min: try again shortly.');
+    if (e.name === 'NotFoundError') log('No device chosen. Tap Sync on the device first (on USB power it is always visible).');
     else log('Connect failed: ' + e.message, 'bad');
     setConnected(dev.connected);
   }
 }
 
 dev.addEventListener('disconnected', () => {
-  log('Disconnected. Connect again when the device is visible (always on USB, every 5 min on battery).');
+  log('Disconnected. To connect again, tap Sync on the device (on USB power it is always visible).');
   setConnected(false);
 });
 

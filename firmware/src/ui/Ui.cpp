@@ -146,6 +146,7 @@ uint32_t Ui::signature(const UiModel& m)
     mix(h, m.cal_countdown_s);
     fnv(h, m.message, strlen(m.message));
     mix(h, m.ble);
+    mix(h, m.ble_left_min);
     fnv(h, m.ble_file, strlen(m.ble_file));
     mix(h, m.ble_pct);
     fnv(h, m.ble_note, strlen(m.ble_note));
@@ -280,7 +281,7 @@ void Ui::drawSidebar(const UiModel& m)
         y += 30;
     }
 
-    if (kWifiSync) { drawButton(layout::syncButton(), "Sync", false); }
+    drawButton(layout::syncButton(), "Sync", m.ask == Ask::Ble);
     drawButton(layout::settingsButton(), "Settings", m.view == View::Settings);
 }
 
@@ -448,10 +449,15 @@ void Ui::drawBox(const UiModel& m)
     char line1[64];
     char line2[64];
     if (m.ask == Ask::Ble) {
-        if (m.ble == BleUi::Sending) { snprintf(line1, sizeof(line1), "Sending %s, %d %%", m.ble_file, m.ble_pct); }
-        else { snprintf(line1, sizeof(line1), "Bluetooth: connected to the page"); }
+        switch (m.ble) {
+        case BleUi::Sending: snprintf(line1, sizeof(line1), "Sending %s, %d %%", m.ble_file, m.ble_pct); break;
+        case BleUi::Connected: snprintf(line1, sizeof(line1), "Bluetooth: connected to the page"); break;
+        default: snprintf(line1, sizeof(line1), "Bluetooth on: press Connect on the page"); break;
+        }
         if (m.ble_note[0]) { snprintf(line2, sizeof(line2), "%s", m.ble_note); }
-        else { snprintf(line2, sizeof(line2), "Stays on while the page is open"); }
+        else if (m.ble != BleUi::Advertising) { snprintf(line2, sizeof(line2), "Stays on while the page is open"); }
+        else if (m.ble_left_min > 0) { snprintf(line2, sizeof(line2), "Waiting, %d min left", m.ble_left_min); }
+        else { snprintf(line2, sizeof(line2), "Waiting, stays on while on USB"); }
         text(line1, b.x + 14, b.y + 14, &fonts::FreeSans9pt7b);
         text(line2, b.x + 14, b.y + 44, &fonts::FreeSans9pt7b);
         drawButton(layout::calSecondButton(), "Stop", false);

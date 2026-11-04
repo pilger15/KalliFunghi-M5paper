@@ -412,10 +412,8 @@ void test_layout_hits()
     TEST_ASSERT_EQUAL(0, h.index);
     h = layout::hitTest(ui, 600, 400);
     TEST_ASSERT_EQUAL(3, h.index);
-    // The Sync button exists only with the Wi-Fi sync; otherwise its place is sidebar.
     Rect s = layout::syncButton();
-    TEST_ASSERT_EQUAL((int)(kWifiSync ? Target::Sync : Target::None),
-                      (int)layout::hitTest(ui, s.x + 5, s.y + 5).target);
+    TEST_ASSERT_EQUAL((int)Target::Sync, (int)layout::hitTest(ui, s.x + 5, s.y + 5).target);
 
     ui.view = View::Plot;
     h = layout::hitTest(ui, 100, 100);

@@ -52,7 +52,7 @@ private:
     // Helpers
     void runSync(bool manual, uint32_t now);
     void applySync(int64_t utc, int64_t correction_s, bool was_valid, uint32_t now);
-    bool startBle(uint32_t now);
+    bool startBle(uint32_t now, bool user);
     void stopBle(const char* why, uint32_t now);
     void bleTick(uint32_t now);
     void applyBleTime(int64_t utc_ms, uint32_t rx_ms);
@@ -139,10 +139,12 @@ private:
     // Bluetooth sync
     BleSync ble_;
     bool ble_fast_ = false;     // page asked for Fast sampling while connected
-    uint32_t next_ble_ms_ = 0;  // start of the next advertising window
+    uint32_t next_ble_ms_ = 0;  // on USB: next start of the always-on advertising
     bool usb_window_ = false;   // the current window has no limit (started on USB)
     bool ble_failed_reported_ = false;
     bool ble_heap_reported_ = false;   // "paused for low heap" is in error.log already
+    bool ble_user_ = false;            // the session was started by a tap on Sync
+    bool ble_was_connected_ = false;   // "page connected" handled for this session
     char ble_note_[48] = "";    // last result in the Bluetooth box ("Time set, ...")
 
     // Debug counters

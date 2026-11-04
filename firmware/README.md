@@ -42,7 +42,7 @@ pio test -e native
   - age of the last sync
   - Home view only: age of the last CO2 calibration (`CO2 cal 12d`, `<1d` or `never`) and the run (`Run 4, day 12`; day 1 is the start date, local time)
   - marks: `! Clock` (never synced, or last sync more than 30 days ago), plug icon (USB power), `! SD` (card missing, full or failing), `Cal due`
-  - button **Settings** (and **Sync** only with `kWifiSync`)
+  - buttons **Sync** (Bluetooth on for 2 min) and **Settings**
 - **Settings:** plot range (1 h, 6 h, 24 h, 7 d), sampling mode, auto-sync on/off (only with `kWifiSync`), SCD41 temperature offset (0 to 10 degC in 0.5 steps), **Calibrate CO2 now** (with the date of the last calibration), **New measurement** (with the current run and its start date).
 - **Interactive mode:** any touch starts it for 5 min; every touch restarts the timer.
 
@@ -80,11 +80,11 @@ Every start also runs 2 black/white cycles (`kBootCleanCycles`). For stubborn ma
 
 ## Sync
 
-The clock is set over Bluetooth from the web page (see "Bluetooth sync"). The Wi-Fi hotspot sync below is compiled out for now: `kWifiSync = false` in `config.h` hides the **Sync** button, the Auto-sync row in Settings and skips auto-sync. The code still builds; `true` brings it back.
+The clock is set over Bluetooth from the web page: **Sync** switches Bluetooth on (see "Bluetooth sync"). The Wi-Fi hotspot sync below is compiled out for now: `kWifiSync = false` in `config.h` skips auto-sync and hides its Settings row. The code still builds; with `true` auto-sync comes back (a manual hotspot sync would need its own button again).
 
 ### Hotspot (with `kWifiSync`)
 
-- **Sync** connects to the phone hotspot, gets NTP time (`pool.ntp.org`, fallback `ptbtime1.ptb.de`), writes the BM8563 (UTC), then turns Wi-Fi off. The timeout is 20 s.
+- `runSync` connects to the phone hotspot, gets NTP time (`pool.ntp.org`, fallback `ptbtime1.ptb.de`), writes the BM8563 (UTC), then turns Wi-Fi off. The timeout is 20 s.
 - The result is shown at the bottom: the correction in seconds, or "Hotspot not found", "Wrong password", "NTP timeout" or "Wi-Fi connect failed".
 - **Auto-sync** (default on): 5 min after boot and then once a day, if the last sync is more than 7 days old, it tries silently for 10 s.
 - No sync below 3.7 V on battery, and none during a calibration.
@@ -108,14 +108,14 @@ Clock sync, status, live samples and SD download for the static Web Bluetooth pa
 
 ### Session
 
-- **Advertising** as `KalliFunghi` (service UUID in the advertisement, name in the scan response), no tap needed:
-  - **USB power:** always (restarted 2 s after a session ends). When USB goes away, the unlimited window ends unless a page is connected.
-  - **Battery:** a window of 30 s every 5 min (`kBleWindowMs`, `kBlePeriodMs`), from 3.60 V up (`kBatteryBleMinMv`). The first window opens 10 s after boot, after a brown-out reset only after one full period (no reset loop on a weak cell).
-  - A window without a connection is silent: no redraw, no SD or NVS write. Each window is one `NimBLEDevice::init` / `deinit(true)` (controller off and stack RAM freed in between, so the chip can light-sleep).
-- **Connected:** the radio stays on until the disconnect, 10 min without page activity (keepalive), the page's "end", **Stop** on the device, or below 3.55 V on battery. A connected page counts as interactive (`psm_.onTouch`); the bottom strip shows "connected", the file being sent and the last result, with **Stop**. Connect, time sync and session end go to `error.log`. One connection at a time.
-- **Power:** no light sleep while Bluetooth is on: the prebuilt controller uses the main crystal as its sleep clock (`CONFIG_BTDM_CTRL_LPCLK_SEL_MAIN_XTAL`), so light sleep would stop it (derived from the sdkconfig, not measured). The loop polls with `delay()` (1 ms while sending, 20 ms otherwise). On battery the low-battery count and the USB heuristic pause while the radio is on (the voltage sags under load). Cost estimate: 30 s at ~35 mA every 5 min is about +3 mA average, not measured.
-- **Heap leak in NimBLE:** every `NimBLEDevice::init` / `deinit(true)` loses 48 B of internal heap. Bench `ble_leak` (20 fast cycles per stage): bare init/deinit −48.0 B/cycle, with the GATT setup −48.4, the firmware's `BleSync` −48.0, the ESP-IDF controller alone 0. Same in NimBLE-Arduino 2.3.9, 2.5.1 and 2.5.2, so it is in the host / port layer, not in this code; not reported upstream yet. Long run with forced battery: −48 B per 5 min window (185 388, 185 340, 185 292 B). That is about 14 KB per day on battery; on USB the radio stays on and nothing is lost. Mitigation: before a window, below 150 KB free (`kBleRestartHeapBytes`, about 2.5 battery days) the device restarts, but only on USB power (writes rows and events first; run, settings and clock survive in NVS and the RTC). On battery it never restarts (the GPIO2 power hold through a reset is unverified), and below 90 KB (`kBleFloorHeapBytes`, about 7 battery days without USB) the windows pause until USB comes, logged once in `error.log`. The restart and pause branches are not tested on the board.
-- **Security:** no pairing or bonding (decided): anyone in range can connect during a window, set the clock and download the logs. The data are not secret; one connection at a time.
+- **Advertising** as `KalliFunghi` (service UUID in the advertisement, name in the scan response):
+  - **Sync** (sidebar) starts it: 2 min (`kBleUserWindowMs`), from 3.60 V up on battery (`kBatteryBleMinMv`). The bottom strip shows "Bluetooth on", the minutes left and **Stop**; Sync is drawn selected while it lasts. A second tap only shows the strip again.
+  - **USB power:** always on, silently (no strip until Sync or a connection; restarted 2 s after a session ends; first start 10 s after boot, 5 min after a brown-out reset). When USB goes away, the unlimited advertising ends unless a page is connected.
+  - **Battery:** otherwise off. Earlier builds of this branch advertised 30 s every 5 min; dropped because the device was hard to find (up to 5 min) and the ESP32 cannot sleep while the radio is on.
+- **Connected:** the radio stays on until the disconnect, 10 min without page activity (keepalive), the page's "end", **Stop** on the device, or below 3.55 V on battery. A connected page or the user's window counts as interactive (`psm_.onTouch`); the strip shows "connected", the file being sent and the last result. Connect, time sync and session end go to `error.log`. One connection at a time.
+- **Power:** no light sleep while Bluetooth is on (measured cost not yet known, estimate 30 to 40 mA). The prebuilt Arduino libraries have `CONFIG_PM_ENABLE` off and no tickless idle, so automatic light sleep, which would wake the chip for each radio event, is not available; the controller's sleep clock is the main crystal (`CONFIG_BTDM_CTRL_LPCLK_SEL_MAIN_XTAL`), and the M5Paper has no 32 kHz crystal on the ESP32. The firmware's own light sleep (several seconds) would sleep through the radio events. Real low-power advertising needs rebuilt ESP-IDF libraries (pioarduino `custom_sdkconfig` or Arduino as an ESP-IDF component). The loop polls with `delay()` (1 ms while sending, 20 ms otherwise). On battery the low-battery count and the USB heuristic pause while the radio is on (the voltage sags under load).
+- **Heap leak in NimBLE:** every `NimBLEDevice::init` / `deinit(true)` loses 48 B of internal heap. Bench `ble_leak` (20 fast cycles per stage): bare init/deinit −48.0 B/cycle, with the GATT setup −48.4, the firmware's `BleSync` −48.0, the ESP-IDF controller alone 0. Same in NimBLE-Arduino 2.3.9, 2.5.1 and 2.5.2, so it is in the host / port layer, not in this code (investigation prompt: `docs/nimble-leak-prompt.md`). With user-started sessions only on battery the loss is small (48 B per Sync). Guard: before a start, below 150 KB free (`kBleRestartHeapBytes`) the device restarts, but only on USB power (writes rows and events first; run, settings and clock survive in NVS and the RTC). On battery it never restarts (the GPIO2 power hold through a reset is unverified); below 90 KB (`kBleFloorHeapBytes`) Bluetooth stays off until USB comes, logged once in `error.log`. The restart and pause branches are not tested on the board.
+- **Security:** no pairing or bonding (decided): advertising needs a tap on the device (or USB power), one connection at a time. The data are not secret.
 - **Fast while connected:** off by default; the page's checkbox switches the effective mode to Fast (not saved, not during a calibration) and back at the end.
 
 ### GATT
